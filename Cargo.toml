@@ -1,0 +1,246 @@
+[workspace]
+# Multi-crate workspace so the new Tauri desktop app at `desktop/src-tauri`
+# can path-depend on the rahgozar core via `rahgozar = { path = "../.." }`.
+# The root crate (rahgozar core + CLI + legacy egui UI bin) is still the
+# primary package; the additional members exist so dependent crates
+# share the root target dir and dep-graph unification.
+#   - desktop/src-tauri — Tauri 2 desktop UI (Rust + Svelte/Tailwind).
+#   - drive-wire        — wire-format types shared between the Drive-mode
+#                         client (this crate) and `rahgozar-drive-relay`.
+#                         Kept dep-light so it cross-compiles to every
+#                         release target without dep churn.
+#   - drive-relay       — `rahgozar-drive-relay` VPS-side server binary.
+#                         Path-deps back on `rahgozar` so it reuses the
+#                         in-crate `drive_crypto` / `drive_oauth` /
+#                         `drive_api` modules without duplication.
+#                         Compile-time bloat is real (rahgozar's full
+#                         dep tree gets pulled in); LTO strips the
+#                         proxy/tunnel code that drive-relay never calls.
+# `resolver = "2"` is required for the dep-feature unification Tauri 2
+# expects across the workspace.
+members = ["desktop/src-tauri", "drive-wire", "drive-relay"]
+resolver = "2"
+
+[package]
+name = "rahgozar"
+version = "2.10.1"
+edition = "2021"
+description = "rahgozar — community continuation of mhrv-rs (Rust port of MasterHttpRelayVPN). DPI bypass via Google Apps Script relay with domain fronting."
+license = "MIT"
+
+[lib]
+name = "rahgozar"
+path = "src/lib.rs"
+# `cdylib` lets the Android app dlopen librahgozar.so via System.loadLibrary.
+# `rlib` keeps the CLI binary (`src/main.rs`) and the Tauri desktop
+# crate (`desktop/src-tauri`, which path-deps on us across the
+# workspace) linking through the same .rlib on macOS/Linux/Windows.
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "rahgozar"
+path = "src/main.rs"
+
+# The egui-based `rahgozar-ui` binary was retired in v2.4 — the
+# Tauri-backed app at `desktop/` replaces it. See
+# `desktop/src-tauri/Cargo.toml` for the new desktop entry point.
+
+[features]
+default = []
+# Pipelining-internal counters + the JNI export that backs the Android
+# debug overlay. Off by default — the overlay is itself debug-only on
+# Android (see android/app/src/debug/AndroidManifest.xml), and the
+# desktop binaries don't surface this data, so the mutators on the hot
+# upload/reply path are dead weight in release. Enable for diagnostic
+# builds: `cargo build --features pipeline-debug`.
+pipeline-debug = []
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "io-util", "signal", "sync", "fs"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pemfile = "2"
+webpki-roots = "0.26"
+rcgen = { version = "0.14", features = ["x509-parser"] }
+rustls-pki-types = "1"
+time = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2"
+base64 = "0.22"
+bytes = "1"
+httparse = "1"
+# rand is pinned to 0.8 because x25519-dalek 2 and curve25519-dalek 4 (and
+# chacha20poly1305 0.10) all depend on `rand_core = 0.6`, and `rand_core`
+# traits are major-versioned: a rand 0.10 ThreadRng implements rand_core
+# 0.10's CryptoRng but NOT rand_core 0.6's CryptoRngCore — they're separate
+# trait types. So `StaticSecret::random_from_rng(&mut rand::rng())` would
+# fail to satisfy the trait bound. Bump rand once x25519-dalek 3.x and
+# chacha20poly1305 0.11.x leave pre-release.
+rand = "0.8"
+h2 = "0.4"
+http = "1"
+flate2 = "1"
+# Brotli + zstd decoders for the opt-in `allow_brotli_zstd` config flag.
+# Pure-Rust crates so they don't add C cross-compile pain for the Android /
+# musl / openwrt release builds.
+#   brotli   → encoder + decoder, but we only use the decoder
+#   ruzstd   → decoder-only, matches our usage
+#
+# ruzstd is pinned to >= 0.7.3 to exclude 0.7.0..=0.7.2 (RUSTSEC-2024-0400 /
+# GHSA-x3f4-45xf-rjm7: RingBuffer length miscalculation causes uninit /
+# OOB reads on crafted input — exploitable since allow_brotli_zstd lets
+# origin-controlled bytes reach the decoder). The 0.8.x line is a
+# separate audit (frame-header API moved) and is deliberately not bumped
+# in the same commit as the security pin.
+brotli = { version = "8", default-features = false, features = ["std"] }
+# ruzstd pinned to 0.7.3 (NOT bumped to 0.8). 0.7.3 carries the
+# RUSTSEC-2024-0400 fix AND still exposes `ruzstd::frame::read_frame_header`
+# publicly — we use that for a pre-decode `window_size` cap in
+# `decode_zstd()` (domain_fronter.rs), which catches zstd-bomb frames that
+# declare huge windows BEFORE the decoder pre-allocates the buffer. 0.8
+# moved `decoding::frame` to `pub(crate)`, so the bomb guard would be lost
+# without manually parsing the frame header. Revisit if upstream re-exposes
+# header inspection or after a manual frame-header parser is in place.
+ruzstd = "0.7.3"
+# C-backed encoder + decoder for tunnel-internal batch compression
+# (`zops` / `zr`). Trusted-counterparty path (both sides hold
+# `TUNNEL_AUTH_KEY`), so the origin-controlled-input concerns that
+# motivated the pure-Rust `ruzstd` pin above don't apply here.
+# zstd-sys uses cc + pkg-config; messense cross-compile images and CI
+# apt toolchains cover it for all release matrix targets.
+zstd = "0.13"
+directories = "6"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+minisign-verify = "0.2"
+# 64-bit atomics on 32-bit MIPS/ARMv5 targets. Rust's std AtomicU64 is
+# only available on targets that expose native 64-bit atomics, which
+# mipsel-unknown-linux-musl does not — `AtomicU64` resolves to "no
+# such name in sync::atomic" and the whole crate fails to build. The
+# `fallback` feature uses a global spinlock when the target can't do
+# 64-bit atomically; on x86_64 / aarch64 / armv7 / etc. it compiles
+# down to the native instructions with no overhead.
+portable-atomic = { version = "1", features = ["fallback"] }
+# Lock-free swap of the mode-dependent state bundle (RewriteCtx + DomainFronter
+# + TunnelMux) used by the proxy's accept loops. Lets a live mode switch happen
+# without taking a lock on the hot path — each accept loads a self-consistent
+# snapshot of all three pointers with one atomic op.
+arc-swap = "1"
+
+# Drive-mode crypto stack (Skirk technique — `src/drive_crypto.rs`).
+# All pure-Rust RustCrypto crates so the Android cdylib + mipsel-musl
+# router cross-compile inherits zero new C toolchain pain. Trade-off
+# vs ring (~10% slower on x86_64): irrelevant in a transport bounded
+# by Drive's ~hundreds-of-ms RTT floor. libsodium would mean a C dep 
+# per target — declined.
+#
+#   chacha20poly1305 — IETF AEAD, RFC 8439. 12-byte nonce per the spec.
+#   x25519-dalek     — ECDH for the session-keys derivation. `static_secrets`
+#                      feature exposes `StaticSecret` (the relay's long-lived
+#                      keypair); `EphemeralSecret` is in the default surface.
+#   hkdf + sha2      — directional-key derivation off the shared X25519 secret.
+#   bech32           — typo-resistant pubkey encoding (`rgdr1...`) for the
+#                      relay's published public key. Bech32m variant.
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+x25519-dalek = { version = "2", default-features = false, features = ["static_secrets", "zeroize"] }
+hkdf = "0.13"
+sha2 = "0.11"
+bech32 = "0.11"
+
+# HTTP client for the Drive REST + OAuth endpoints. Matches the
+# `reqwest` 0.13 that tauri 2 already pulls so the workspace resolver
+# unifies on one version. The `rustls-no-provider` feature (vs the
+# plain `rustls` feature) is the critical pick:
+#   - `rustls` in reqwest 0.13 enables `__rustls-aws-lc-rs` which
+#     pulls `aws-lc-sys` (cmake + C build). That breaks the
+#     `mipsel-unknown-linux-musl` OpenWRT cross-compile we ship
+#     binaries for — same constraint that motivated the
+#     `default-features = false` + `features = ["ring", ...]` setup
+#     on `rustls` / `tokio-rustls` at the top of this file.
+#   - `rustls-no-provider` leaves the choice of crypto provider to
+#     the binary. `drive_oauth::install_default_crypto_provider()`
+#     wires up the same `ring` provider the rest of the codebase
+#     already uses, on first call.
+# `json` for `Response::json()`, `gzip` because Google occasionally
+# returns gzip-compressed responses, `stream` for
+# `Response::bytes_stream()` (forthcoming `files.get` downloads in
+# `drive_api`).
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json", "gzip", "stream", "query", "http2"] }
+
+# Path-dep on the in-workspace `drive-wire` crate so client (this
+# crate) and relay (forthcoming `drive-relay/`) reuse the same
+# wire-format types. Cheap: `drive-wire` only pulls `bytes`.
+drive-wire = { path = "drive-wire" }
+
+# eframe / egui were dropped in v2.4 — the desktop UI moved to Tauri at
+# `desktop/` (Rust backend + Svelte/Tailwind frontend) so Persian text
+# shaping, light/dark theming, and modern web-style layout all work
+# out of the box. The Tauri crate's own `Cargo.toml` at
+# `desktop/src-tauri/Cargo.toml` owns the UI dep tree now.
+url = "2.5.8"
+
+# Unix-only deps. Must come after `[dependencies]` because starting a new
+# table here otherwise ends the main one — anything below it (incl. eframe)
+# would end up scoped to cfg(unix) and disappear on Windows builds.
+# libc is referenced for the RLIMIT_NOFILE bump (issue #8 — OpenWRT routers
+# ship a very low fd limit that fills up fast under browser load). Already
+# pulled in transitively via tokio, so zero new weight.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# Desktop auto-updater deps. Android uses Android's PackageInstaller for
+# APK swap, so it doesn't need any of this — keeping these scoped to
+# non-android keeps the Android cdylib lean.
+#   zip                 → unpack windows-amd64.zip / macos-*-app.zip release assets
+#   tar                 → unpack linux/macos *.tar.gz release assets
+#   tempfile            → scratch dir for download/extract before staging
+[target.'cfg(not(target_os = "android"))'.dependencies]
+zip = { version = "4", default-features = false, features = ["deflate"] }
+tar = "0.4.45"
+tempfile = "3"
+
+# Android-only deps: jni gives us the extern "system" wrappers used in
+# src/android_jni.rs; zero cost on any other platform because the whole
+# module is `#[cfg(target_os = "android")]`.
+#
+# tun2proxy is the TUN <-> SOCKS5 bridge — it reads raw IP packets from the
+# fd VpnService hands us, runs a userspace TCP/IP stack (smoltcp under the
+# hood), and funnels every TCP/UDP flow through our local SOCKS5. Without
+# this, VpnService establishes a TUN device nothing reads from and all
+# traffic black-holes (symptom: Chrome shows DNS_PROBE_STARTED).
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { version = "0.22", default-features = false }
+tun2proxy = { version = "0.8", default-features = false, features = ["udpgw"] }
+# Android-only: rustls-platform-verifier is what reqwest 0.13 + rustls
+# delegates cert chain verification to. On Linux/macOS/Windows it
+# auto-bootstraps off the system cert store; on Android it needs an
+# explicit init with a JavaVM + Application context BEFORE any TLS
+# work, otherwise it panics with "Expect rustls-platform-verifier to
+# be initialized" and the process aborts. Called from
+# `Java_com_dazzlingnomore_mhrv_Native_initAndroidTls` which
+# `RahgozarApp.onCreate` invokes once per process. Pulled in as a
+# direct dep so we can name it in Rust; it was already transitively
+# present via reqwest's default features.
+rustls-platform-verifier = "0.7"
+
+[dev-dependencies]
+# Used in mitm tests to sanity-check the cert extensions we emit.
+x509-parser = "0.16"
+# `test-util` enables `tokio::test(start_paused = true)` so timing-
+# sensitive tests in `tunnel_client` (the empty-poll cadence) can
+# auto-advance virtual time instead of burning real wall-clock seconds.
+tokio = { version = "1", features = ["test-util"] }
+# Scratch directories for direct_mode candidate-cache persistence tests.
+# The non-dev `tempfile` dep is scoped to non-android targets (for the
+# desktop auto-updater), so we re-declare here so tests compile against
+# every target including android.
+tempfile = "3"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = 3
+strip = true

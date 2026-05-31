@@ -1,0 +1,328 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">rahgozar</string>
+
+    <!-- Top-bar -->
+    <string name="tb_check_update_checking">checking…</string>
+    <string name="tb_version_prefix">v</string>
+
+    <!-- Section headers -->
+    <string name="sec_apps_script_relay">Apps Script relay</string>
+    <string name="sec_network">Network</string>
+    <string name="sec_sni_pool_tester">SNI pool + tester</string>
+    <string name="sec_advanced">Advanced</string>
+    <string name="sec_live_logs">Live logs</string>
+    <string name="sec_how_to_use">How to use</string>
+    <string name="sec_app_splitting">App splitting</string>
+
+    <!-- Primary actions -->
+    <string name="btn_connect">Connect</string>
+    <string name="btn_disconnect">Disconnect</string>
+    <string name="btn_install_mitm">Install MITM certificate</string>
+    <string name="btn_auto_detect_google_ip">Auto-detect google_ip</string>
+    <string name="btn_test_all">Test all</string>
+    <string name="btn_test">Test</string>
+    <string name="btn_add">Add</string>
+    <string name="btn_clear">Clear</string>
+    <string name="btn_copy">Copy</string>
+    <string name="btn_install">Install</string>
+    <string name="btn_cancel">Cancel</string>
+
+    <!-- Field labels -->
+    <string name="field_deployment_urls">Deployment URL(s) or script ID(s)</string>
+    <string name="placeholder_paste_ids">Paste one URL/ID, or many separated by newline / space / comma / semicolon</string>
+    <string name="field_auth_key">auth_key</string>
+    <string name="field_google_ip">google_ip</string>
+    <string name="field_front_domain">front_domain</string>
+    <string name="field_connection_mode">Connection mode</string>
+    <string name="field_add_custom_sni">Add custom SNI</string>
+
+    <!-- Connection mode -->
+    <string name="mode_vpn_tun">VPN (TUN) — routes every app</string>
+    <string name="mode_proxy_only">Proxy only — configure per-app</string>
+
+    <!-- Mode dropdown (apps_script / direct / full / local_bypass) -->
+    <string name="sec_mode">Mode</string>
+    <string name="mode_apps_script_label">Apps Script (MITM)</string>
+    <string name="mode_direct_label">Direct (no relay)</string>
+    <string name="mode_full_label">Full tunnel (no cert)</string>
+    <string name="mode_local_bypass_label">Local Bypass (all-app, no cert)</string>
+    <string name="help_mode_apps_script">Full DPI bypass through your deployed Apps Script relay.</string>
+    <string name="help_mode_direct">No relay. Google + configured fronting groups get DPI bypass; everything else is raw TCP (instant, no overhead). Pick this if you only need Google access, or as a bootstrap to open script.google.com and deploy Code.gs.</string>
+    <string name="help_mode_full">All traffic tunneled end-to-end through Apps Script + remote tunnel node. No certificate needed.</string>
+    <string name="help_mode_local_bypass">Local DPI bypass for every TLS host (not just Google). The real ClientHello is split across TCP segments and sent direct to the destination — no Apps Script, no VPS, no MITM cert. Pick this for full DPI coverage; costs ~300 ms per TLS handshake vs. raw TCP. Cannot bypass IP-level blocks (claude.ai, x.ai, …).</string>
+    <string name="mode_drive_label">Drive (mailbox via Google Drive)</string>
+    <string name="help_mode_drive">Every TCP session is encrypted and uploaded to a Google Drive folder you own; a separate rahgozar-drive-relay binary on a VPS abroad polls the folder and forwards. ISP only sees TLS to *.google.com. Requires a VPS + relay binary + Drive folder + relay public key. Slower than Apps Script (no long-poll on Drive).</string>
+
+    <!-- Drive mode setup section -->
+    <string name="sec_drive_setup">Drive mailbox setup</string>
+    <string name="drive_help">Connect to Google Drive (one-time), pick a folder for the encrypted mailbox, paste the public key your relay printed at `rahgozar-drive-relay keygen` time.</string>
+    <string name="drive_oauth_client_section">Your Google OAuth client (BYO)</string>
+    <string name="drive_oauth_client_help">Register your own TVs and Limited Input devices OAuth client in Google Cloud Console — see docs/drive_oauth_setup.md for the walkthrough. Required: every user supplies their own client so the 100-user cap on unverified clients never bites.</string>
+    <string name="drive_oauth_client_id_label">Client ID</string>
+    <string name="drive_oauth_client_id_placeholder">123456789-abc...apps.googleusercontent.com</string>
+    <string name="drive_oauth_client_secret_label">Client secret</string>
+    <string name="drive_oauth_client_secret_placeholder">GOCSPX-…</string>
+    <string name="drive_oauth_save_before_signin">Paste your OAuth client_id and client_secret above and Save before signing in.</string>
+    <string name="drive_signed_out">Not signed in to Google.</string>
+    <string name="drive_signed_in">Signed in.</string>
+    <string name="drive_sign_in_btn">Sign in with Google</string>
+    <string name="drive_signing_in">Signing in…</string>
+    <string name="drive_relink_btn">Re-link</string>
+    <string name="drive_folder_id_label">Folder ID</string>
+    <string name="drive_folder_id_help">Bare Drive folder ID (the random string in the URL after /folders/). Both this client and the relay must use the same folder.</string>
+    <string name="drive_create_folder_btn">Create new</string>
+    <string name="drive_create_folder_dialog_title">Create Drive folder</string>
+    <string name="drive_create_folder_name_label">Folder name</string>
+    <string name="drive_create_folder_confirm">Create</string>
+    <string name="drive_create_folder_cancel">Cancel</string>
+    <string name="drive_creating_folder">Creating folder…</string>
+    <string name="drive_relay_pubkey_label">Relay public key</string>
+    <string name="drive_relay_pubkey_help">Bech32m public key your relay printed (starts with `rgdr1`). The checksum catches typos.</string>
+    <string name="drive_relay_pubkey_valid">Valid relay public key.</string>
+    <string name="drive_relay_pubkey_invalid">Invalid: %1$s</string>
+    <string name="drive_test_btn">Test connection</string>
+    <string name="drive_testing">Testing…</string>
+    <string name="drive_test_ok">OK — folder %1$s has %2$d file(s).</string>
+    <string name="drive_advanced">Advanced</string>
+    <string name="drive_poll_interval_label">Poll interval (ms)</string>
+    <string name="drive_max_concurrent_label">Max concurrent uploads</string>
+    <string name="drive_browser_open_failed">Couldn\'t open browser. Copy this URL: %1$s</string>
+    <string name="drive_oauth_dialog_title">Sign in with Google</string>
+    <string name="drive_oauth_dialog_help">Open %1$s in any browser and enter the code below. The app will pick up the sign-in automatically.</string>
+    <string name="drive_oauth_dialog_waiting">Waiting for sign-in… Leave this dialog open.</string>
+    <string name="drive_oauth_copy_code">Copy</string>
+    <string name="drive_oauth_code_copied">Code copied to clipboard.</string>
+    <string name="drive_oauth_open_url">Open URL</string>
+    <string name="drive_oauth_cancel">Cancel</string>
+    <string name="drive_oauth_denied">Sign-in cancelled or denied.</string>
+    <string name="drive_oauth_expired">Sign-in code expired. Tap Sign in again.</string>
+    <string name="drive_oauth_retrying">OAuth retrying: %1$s</string>
+    <string name="drive_oauth_failed">OAuth failed: %1$s</string>
+    <string name="drive_oauth_start_failed">OAuth start failed: %1$s</string>
+    <string name="drive_oauth_start_incomplete">OAuth start returned an incomplete response.</string>
+    <string name="drive_test_failed">Test failed: %1$s</string>
+    <string name="drive_create_folder_failed">Create folder failed: %1$s</string>
+    <string name="drive_parse_error">parse error</string>
+
+    <!-- Deployment URL list -->
+    <string name="field_deployment_url_index">#%1$d</string>
+    <string name="btn_add_url">+ Add</string>
+    <string name="cd_deployment_enable">Toggle deployment ID #%1$d</string>
+
+    <!-- SNI latency display -->
+    <string name="sni_latency_ms_fmt">%1$d ms</string>
+
+    <!-- Upstream SOCKS5 placeholder -->
+    <string name="placeholder_host_port">host:port</string>
+
+    <!-- Pipeline-debug stats card + system overlay -->
+    <string name="debug_pipeline_title">Pipeline Debug</string>
+    <string name="debug_elevated">Elevated</string>
+    <string name="debug_batches_inflight">Batches in-flight</string>
+    <string name="debug_events">Events</string>
+    <string name="debug_overlay_sessions_fmt">Sessions: %1$d  Elevated: %2$d / %3$d</string>
+    <string name="debug_overlay_batches_fmt">Batches: %1$d / %2$d</string>
+
+    <!-- App picker dialog -->
+    <string name="dialog_pick_apps_title_fmt">Pick apps (%1$d selected)</string>
+    <string name="field_search">Search</string>
+    <string name="checkbox_show_system_apps">Show system apps</string>
+
+    <!-- Config sharing: QR / paste / share / import -->
+    <string name="btn_paste">Paste</string>
+    <string name="qr_scan_prompt">Scan rahgozar config QR code</string>
+    <string name="cd_qr_code">QR code</string>
+    <string name="qr_config_too_large">Config too large for QR code</string>
+    <string name="dialog_import_warning_text">Importing routes your traffic through the deployment IDs in this config. Only import from trusted sources.</string>
+    <string name="dialog_import_summary_fmt">Mode: %1$s\nDeployments: %2$d\n%3$s</string>
+    <string name="btn_import">Import</string>
+    <string name="btn_share">Share</string>
+    <string name="share_config_chooser_title">Share config</string>
+
+    <!-- App splitting -->
+    <string name="split_all">All apps</string>
+    <string name="split_only">Only selected apps</string>
+    <string name="split_except">All except selected</string>
+    <string name="split_pick_apps">Pick apps…</string>
+
+    <!-- Install dialog title + body -->
+    <string name="dialog_install_mitm_title">Install MITM certificate?</string>
+    <string name="dialog_install_mitm_body_1">rahgozar creates a local certificate authority so it can decrypt and re-encrypt HTTPS traffic before tunnelling it through the Apps Script relay. Without this CA installed as trusted, apps will show certificate errors.</string>
+    <string name="dialog_install_mitm_body_2">On Android 11+ the system removed the inline install path, so tapping Install will: (1) save a PEM copy to Downloads/rahgozar-ca.crt, (2) open the Settings app.\n\nInside Settings, tap the search bar and type \"CA certificate\". Open the result labelled \"CA certificate\" (NOT \"VPN &amp; app user certificate\" or \"Wi-Fi certificate\"). Pick rahgozar-ca.crt from Downloads when prompted. If you don\'t have a screen lock, Android will ask you to add one first — that\'s an OS requirement for installing any user CA.</string>
+    <string name="dialog_install_mitm_subject_fmt">Subject: %1$s</string>
+    <string name="dialog_install_mitm_subject_unknown">(unknown)</string>
+    <string name="dialog_install_mitm_cert_unavailable">Could not read the CA cert yet. Tap Start once so the proxy generates it, then come back.</string>
+    <string name="snack_ca_installed">Certificate installed ✓</string>
+    <string name="snack_ca_not_installed_with_path">Certificate not yet installed. Saved to %1$s. In Settings, search for \"CA certificate\" and install from there — NOT \"VPN &amp; app user certificate\" or \"Wi-Fi\".</string>
+    <string name="snack_ca_not_installed_retry">Certificate not yet installed. Tap Install again to retry.</string>
+
+    <!-- Language toggle -->
+    <string name="lang_toggle_cd">Switch language</string>
+
+    <!-- Supporting / helper text -->
+    <string name="help_deployment_urls">Full URLs (https://script.google.com/macros/s/.../exec) or bare IDs. Paste many at once into the Add field — they\'ll be split on newline / space / comma / semicolon. Multiple IDs are rotated round-robin — more IDs = more pipeline throughput in full mode.</string>
+    <string name="help_auth_key">The shared secret you set in the Apps Script.</string>
+    <string name="help_mode_vpn_tun">Requests the OS VPN grant on Connect. All device traffic is routed automatically.</string>
+    <string name="help_mode_proxy_only">No OS VPN. Set your Wi-Fi proxy to 127.0.0.1:%1$d (HTTP) or %2$d (SOCKS5) after Connect. Only apps that honour the proxy settings will tunnel.</string>
+    <string name="help_sni_pool">Enabled SNIs are rotated when connecting to google_ip. Leaving all unchecked lets Rust auto-expand the default Google pool.</string>
+    <string name="help_app_splitting">Choose which apps go through the VPN. Only applies in VPN (TUN) mode. Our own app is always excluded to avoid routing its own traffic back through the tunnel.</string>
+
+    <!-- SNI pool extras -->
+    <string name="sni_selected_count">%1$d app(s) selected</string>
+
+    <!-- Advanced section -->
+    <string name="adv_verify_tls">Verify upstream TLS</string>
+    <string name="adv_verify_tls_help">Off disables cert checks for the Google edge. Only useful for debugging.</string>
+    <string name="adv_youtube_via_relay">Send YouTube through relay</string>
+    <string name="adv_youtube_via_relay_help">Route youtube.com / youtu.be / ytimg.com through Apps Script relay instead of SNI-rewrite tunnel. Avoids restricted mode but slower for video.</string>
+    <string name="adv_log_level">log_level</string>
+    <string name="adv_parallel_relay">parallel_relay: %1$d</string>
+    <string name="adv_parallel_relay_help">Fan-out per request. 1 is normal; bump to 2-3 on lossy links.</string>
+    <string name="adv_block_quic">Block QUIC</string>
+    <string name="adv_block_quic_help">Drop UDP/443 so browsers use TCP/HTTPS. QUIC over TCP tunnel causes meltdown.</string>
+    <string name="adv_block_doh">Block DoH</string>
+    <string name="adv_block_doh_help">Reject browser DoH — forces instant system DNS via tun2proxy. Saves ~1.5s per domain lookup.</string>
+    <string name="adv_bypass_doh">Bypass DoH</string>
+    <string name="adv_bypass_doh_help">Send browser DoH direct, not through tunnel. Faster DNS — queries are still encrypted.</string>
+    <string name="adv_upstream_socks5">upstream_socks5 (optional)</string>
+    <string name="adv_upstream_socks5_help">If set, route upstream via this SOCKS5. Leave blank for direct.</string>
+
+    <!-- Curated fronting groups -->
+    <string name="adv_fronting_groups_count">Fronting groups: %1$d</string>
+    <string name="adv_fronting_groups_help">Curated bundle covers vercel, fastly (reddit/cnn/python), AWS CloudFront (netlify), and direct GitHub paths. Edit IPs in config.json if a group stops working.</string>
+    <string name="btn_load_curated_groups">Load curated fronting groups</string>
+    <string name="toast_curated_loaded">Loaded curated groups: %1$d added, %2$d already present.</string>
+    <string name="toast_curated_load_failed">Could not read curated fronting groups asset.</string>
+
+    <!-- Live logs -->
+    <string name="logs_lines_count">%1$d lines</string>
+
+    <!-- Config import/export -->
+    <string name="btn_import_clipboard">Paste config from clipboard</string>
+    <string name="btn_export_config">Export config</string>
+    <string name="btn_export_qr">Show QR code</string>
+    <string name="btn_scan_qr">Scan QR code</string>
+    <string name="btn_copy_hash">Copy to clipboard</string>
+    <string name="snack_config_imported">Config imported</string>
+    <string name="snack_config_copied">Config copied to clipboard</string>
+    <string name="snack_invalid_config">Invalid config in clipboard</string>
+    <string name="dialog_export_title">Export config</string>
+    <string name="dialog_export_warning">This includes your auth_key and Drive folder/relay settings. It does not include your Drive refresh token or OAuth client secret. Only share with people you trust.</string>
+    <string name="dialog_import_title">Import config?</string>
+    <string name="dialog_import_body">This will replace your current settings.</string>
+    <string name="label_camera_permission">Camera permission needed to scan QR codes</string>
+
+    <!-- Snackbar -->
+    <string name="snack_google_ip_updated">google_ip updated to %1$s</string>
+    <string name="snack_google_ip_current">google_ip already current (%1$s)</string>
+    <string name="snack_dns_lookup_failed">DNS lookup failed — check network</string>
+    <string name="snack_logs_copied">Logs copied to clipboard</string>
+    <string name="snack_update_available_url">Update v%1$s → v%2$s  %3$s</string>
+    <string name="snack_update_available">Update available: v%1$s → v%2$s</string>
+    <string name="snack_update_enable_unknown_apps">Enable "Install unknown apps" for rahgozar, then tap the version label to retry.</string>
+    <string name="snack_update_downloading">Downloading and verifying update… (%1$.1f MB)</string>
+    <string name="snack_update_open_installer_failed">Couldn\'t open installer: %1$s</string>
+    <string name="snack_update_download_failed">Download failed: %1$s</string>
+    <string name="snack_update_download_crashed">Download crashed: %1$s</string>
+    <string name="snack_update_apk_empty">Downloaded APK was empty.</string>
+    <string name="snack_update_apk_size_mismatch">Downloaded APK size mismatch (%1$d of %2$d bytes).</string>
+
+    <!-- Foreground-service notification.
+         Title swaps between active/paused. Body shows live stats while running
+         (Apps Script relay modes only — direct/full-only fall back to the ports
+         line). Action labels appear on the notification buttons. -->
+    <string name="notif_title_active">rahgozar VPN is active</string>
+    <string name="notif_title_paused">rahgozar VPN is paused</string>
+    <string name="notif_paused_body">Tap Resume to reconnect</string>
+    <!-- "%1$d calls today · 12.3 MB · resets in 5h 30m" — daily Pacific-time
+         quota counters lifted from Native.statsJson. -->
+    <string name="notif_running_stats">%1$d calls today  ·  %2$s  ·  resets in %3$dh %4$dm</string>
+    <!-- Fallback when no Apps-Script-relay stats are available (direct mode etc). -->
+    <string name="notif_running_ports">HTTP 127.0.0.1:%1$d  ·  SOCKS5 127.0.0.1:%2$d</string>
+    <string name="notif_action_stop">Stop</string>
+    <string name="notif_action_pause">Pause</string>
+    <string name="notif_action_resume">Resume</string>
+
+    <!-- Usage today card -->
+    <string name="sec_usage_today">Usage today (estimated)</string>
+    <string name="label_calls_today">calls today</string>
+    <string name="label_bytes_today">bytes today</string>
+    <!-- Pacific Time day key — Apps Script's UrlFetchApp quota
+         resets at midnight Pacific, not midnight UTC, so the day
+         label and the reset countdown both use PT. -->
+    <string name="label_pt_day">PT day</string>
+    <string name="label_resets_in">resets in</string>
+    <string name="usage_calls_of_quota">%1$d / %2$d  (%3$.1f%%)</string>
+    <string name="usage_resets_hm">%1$dh %2$dm</string>
+    <string name="btn_view_quota_on_google">View quota on Google →</string>
+    <string name="usage_today_note">Estimate — this is what this device relayed. Google\'s dashboard has the authoritative number.</string>
+
+    <!-- Profile bar: switch between saved configs without re-typing
+         deployment IDs / auth keys. Backed by profiles.json (mirrors
+         the desktop UI's profile store). -->
+    <string name="profile_label">Profile</string>
+    <string name="profile_none">(none)</string>
+    <string name="profile_active_prefix">Profile:</string>
+    <string name="profile_no_saved">No profiles saved yet</string>
+    <string name="btn_save_as_profile">Save as profile</string>
+    <string name="btn_manage_profiles">Manage profiles…</string>
+    <string name="dialog_save_profile_title">Save as profile</string>
+    <string name="dialog_manage_profiles_title">Manage profiles</string>
+    <string name="field_profile_name">Profile name</string>
+    <string name="placeholder_profile_name">e.g. Apps Script (home), Full (work)</string>
+    <string name="profile_overwrite_warning">A profile named \'%1$s\' already exists. Tap Overwrite to replace it.</string>
+    <string name="btn_overwrite">Overwrite</string>
+    <string name="btn_save">Save</string>
+    <string name="btn_close">Close</string>
+    <string name="btn_rename">Rename</string>
+    <string name="btn_duplicate">Duplicate</string>
+    <string name="btn_delete">Delete</string>
+    <string name="btn_confirm_delete">Confirm delete</string>
+    <string name="confirm_delete_profile">Delete \'%1$s\'?</string>
+    <string name="btn_ok">OK</string>
+    <string name="profile_err_save_failed">Could not save profile</string>
+    <string name="profile_err_rename_failed">Could not rename — name taken or empty</string>
+    <string name="profile_err_duplicate_failed">Could not duplicate</string>
+    <string name="profile_err_delete_failed">Could not delete</string>
+    <string name="snack_profile_switched">Switched to profile \'%1$s\'</string>
+    <string name="snack_profile_switched_partial">Switched to \'%1$s\' (live config updated), but saving the active marker failed — restart will lose the marker.</string>
+    <string name="snack_profile_switch_failed">Failed to switch to \'%1$s\'</string>
+    <string name="snack_profile_saved">Saved profile \'%1$s\'</string>
+    <string name="snack_profile_switch_blocked_running">Disconnect first — profile switch only takes effect on next Connect</string>
+    <string name="snack_config_save_failed">Could not save config.json — your edit is in-memory only, restart will lose it</string>
+    <string name="profile_active_marker_cd">Active profile</string>
+    <string name="profile_err_corrupt_on_disk">profiles.json on disk looks corrupted; refusing to overwrite. Move it aside if you don\'t need it, then retry.</string>
+    <string name="profile_err_partial_config_only">Live config saved, but the profile entry was not saved. Retry to save the profile.</string>
+
+    <!-- Direct mode upstream-proxy banner (see docs/use-as-upstream.md). -->
+    <string name="direct_upstream_help">Also works as an upstream proxy for Psiphon / xray — unfronted hosts pass through as raw TCP.</string>
+    <string name="direct_upstream_label">Upstream for Psiphon / xray:</string>
+    <string name="direct_upstream_vpn_tun_warning">Psiphon needs Android\'s single VPN slot. Stop rahgozar, switch Connection mode to PROXY_ONLY, then Connect again — only then can Psiphon use the address below.</string>
+    <string name="btn_copy_lower">copy</string>
+    <string name="snack_upstream_copied">Copied %1$s</string>
+
+    <!-- Fronting groups editor (Network section). -->
+    <string name="sec_fronting_groups">CDN fronting groups</string>
+    <string name="fronting_help">Route specific domains through a CDN edge instead of the Apps Script relay. Type a hostname known to live on the CDN (e.g. python.org → Fastly, react.dev → Vercel) and tap Discover.</string>
+    <string name="fronting_hint_hostname">hostname (e.g. python.org)</string>
+    <string name="fronting_hint_domains">domains to front through this edge, one per line</string>
+    <string name="btn_discover">Discover</string>
+    <string name="btn_discovering">Discovering…</string>
+    <string name="btn_dismiss">dismiss</string>
+    <string name="btn_remove_group">remove</string>
+    <string name="btn_add_as_group">add as fronting group</string>
+    <string name="fronting_discovering_fmt">Discovering %1$s — resolving DNS and probing IPs…</string>
+    <string name="fronting_result_ok_fmt">%1$s — %2$d of %3$d IPs reachable</string>
+    <string name="fronting_result_none_fmt">%1$s — no IPs reachable</string>
+    <string name="fronting_result_error_fmt">%1$s: %2$s</string>
+    <string name="fronting_latency_ms_fmt">%1$d ms</string>
+    <string name="fronting_group_added_fmt">Added fronting group for %1$s — fill in domains and Save.</string>
+    <string name="fronting_group_draft_warning">Draft — won\'t save until you list at least one domain.</string>
+    <string name="fronting_group_camouflage_badge">camouflage</string>
+    <string name="fronting_group_camouflage_detail">auto-IP (DoH) · decoy SNI %1$s</string>
+    <string name="fronting_edge_mismatch_warning">⚠ Only list domains you know are served by the same edge as the SNI above — a mismatch returns wrong-cert errors or a default page.</string>
+
+    <!-- "How to use" guide body. Localized — FA copy lives in values-fa. -->
+    <string name="help_how_to_use">1. Paste one or more Apps Script deployment URLs (or bare IDs) and your auth_key.\n2. Tap Install MITM certificate. Confirm the dialog — the cert is saved to Downloads/rahgozar-ca.crt and the Settings app opens. Use Settings\' search bar to find \"CA certificate\", tap that result (NOT \"VPN &amp; app user certificate\" or \"Wi-Fi\"), and pick rahgozar-ca.crt from Downloads. You\'ll be asked to set a screen lock if you don\'t have one (Android requirement).\n3. Before tapping Start, expand \"SNI pool + tester\" and hit \"Test all\". If every entry times out, your google_ip is unreachable — replace it with one that resolves locally (e.g. `nslookup www.google.com` on any working device).\n4. Tap Start. Accept the VPN prompt. The full TUN bridge routes every app on the device through the proxy — no per-app setup needed.\n5. If Chrome shows \"504 Relay timeout\": your Apps Script deployment isn\'t responding. Redeploy the script, grab the new /exec URL, and paste it above. Watch Live logs for \"Relay timeout\" vs \"connect:\" errors to tell which layer is failing.\n\nKnown limitation — Cloudflare Turnstile (\"Verify you are human\") will loop endlessly on most CF-protected sites. Every Apps Script request uses a rotating Google-datacenter egress IP + a fixed \"Google-Apps-Script\" User-Agent + a Google TLS fingerprint. The cf_clearance cookie is bound to the (IP, UA, JA3) tuple the challenge was solved against, so the NEXT request — from a different egress IP — gets re-challenged. Nothing in this app can fix that; it\'s inherent to Apps Script as a relay. Sites that only gate the initial page load (not every request) will work after one solve.</string>
+</resources>

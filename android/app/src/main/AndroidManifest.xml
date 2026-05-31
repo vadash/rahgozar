@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!--
+      Required so the App-splitting picker can enumerate user-visible
+      apps. Without this on API 30+ (targetSdk 34), PackageManager
+      returns an empty list for CATEGORY_LAUNCHER queries against other
+      apps' labels/icons — result: an empty picker dialog. Declaring
+      it makes Android show a "com.dazzlingnomore.mhrv wants to see which
+      apps you have installed" note in Play Protect but no runtime
+      prompt.
+    -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <!--
+      SYSTEM_ALERT_WINDOW is declared only in src/debug/AndroidManifest.xml
+      so release builds never request it (it's a "sensitive" permission and
+      the only feature using it — the pipelining debug overlay — is also
+      gated to debug at runtime via BuildConfig.DEBUG).
+    -->
+
+
+    <!--
+      Required so we can hand a downloaded APK to the system installer
+      via Intent(ACTION_VIEW, application/vnd.android.package-archive).
+      On API 26+ the user additionally has to grant "Install unknown apps"
+      for this package in system settings — we route them there from
+      UpdateInstaller.openUnknownSourcesSettings when the toggle is off.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!--
+      Android TV / leanback support. Declaring `software.leanback` with
+      required="false" keeps the SAME APK installable on phones and TV
+      boxes both (Xiaomi MiBox, Nvidia Shield, Chromecast with Google TV,
+      etc.). The matching `hardware.touchscreen` required="false" is
+      mandatory: without it, Play Store + several TV launchers filter the
+      app out on DPad-only devices because Android assumes a touchscreen
+      by default. We don't gate routing on either feature at runtime, so
+      the manifest declaration is the only change needed for sideloaded
+      TV installs (Play Store distribution is moot — rahgozar is a
+      VPN-like proxy that wouldn't pass review anyway).
+    -->
+    <uses-feature
+        android:name="android.software.leanback"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+
+    <!--
+      App-launcher visibility filter. Complements QUERY_ALL_PACKAGES:
+      the system uses `<queries>` as the allowlist for metadata reads
+      (labels, icons) so we can render the picker rows with the app
+      name the user recognizes, rather than a bare package string.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <!--
+          Mirror entry for Leanback (Android TV) launcher apps — TV-only
+          apps (TV-tuned YouTube, streaming clients) advertise ONLY this
+          category, so without a matching <queries> intent PackageManager
+          returns empty metadata under API 30+ visibility restrictions
+          and they'd appear as blank rows in the split-tunnel app picker.
+          See AppPickerDialog.kt::loadInstalledApps for the corresponding
+          queryIntentActivities() call.
+        -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+        </intent>
+    </queries>
+
+    <application
+        android:name=".RahgozarApp"
+        android:allowBackup="false"
+        android:banner="@drawable/banner"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:localeConfig="@xml/locales_config"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Rahgozar"
+        tools:targetApi="34">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.Rahgozar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Android TV launcher entry. Without this, Leanback launchers
+                 (the default home on Nvidia Shield / Mi Box / Chromecast
+                 with Google TV) won't show the app even when the leanback
+                 uses-feature is declared above — they enumerate only
+                 activities advertising LEANBACK_LAUNCHER. We reuse
+                 MainActivity rather than building a separate Leanback
+                 BrowseFragment because the existing Compose UI is
+                 focus-navigable enough for the simple connect/disconnect
+                 flow; a TV-native landing page can come later. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+            <!-- Deep link: tapping rahgozar://... in any app opens MainActivity.
+                 Currently used only for QR-code-shared config payloads —
+                 ConfigStore.decode parses the URI and the Activity surfaces a
+                 confirm dialog before import. (Drive-mode OAuth used to share
+                 this scheme too but moved to the device-code flow because
+                 Google's Desktop-app OAuth clients don't support custom-scheme
+                 redirects on Android.) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="rahgozar" />
+            </intent-filter>
+        </activity>
+
+        <!-- FileProvider for sharing QR code images via the share sheet. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- Force ZXing scanner to portrait (matches app orientation). -->
+        <activity
+            android:name="com.journeyapps.barcodescanner.CaptureActivity"
+            android:screenOrientation="portrait"
+            tools:replace="android:screenOrientation" />
+
+        <!--
+          VpnService: Android captures all traffic at the IP layer and feeds
+          it to us via a TUN file descriptor. The android.net.VpnService action
+          is what lets the system show us in the "VPN" section of settings
+          and route through us.
+        -->
+        <!--
+          `android:process=":vpn"` is the workaround for a Samsung One UI 7 /
+          Android 16 bug where a libhwui static mutex is destroyed during
+          our process's render-thread teardown WHILE a queued render task
+          (`hwuiTask0`) tries to lock it. The trigger is the VPN service's
+          destruction happening in the same process as the Activity's HWUI
+          render context. By hosting the service in a separate `:vpn`
+          process, its destruction has no Activity / no libhwui render
+          context to race — the UI process keeps its libhwui intact.
+          Cross-process state sync goes through `VpnStateSync` (broadcasts);
+          stats polling moves into the service and is rebroadcast to the UI.
+        -->
+        <service
+            android:name=".RahgozarVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:foregroundServiceType="specialUse"
+            android:process=":vpn">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="vpn_relay" />
+        </service>
+
+        <!--
+          AppCompat runtime-locale bootstrap. AppCompatDelegate.setApplicationLocales()
+          is a no-op on API < 33 without this service declaration — it's how
+          AppCompat signals to itself that the app opted into the per-app
+          language API and wants AppCompat to persist the preference across
+          cold starts. `autoStoreLocales=true` ON older Android makes it
+          survive process death without us doing our own file I/O.
+          https://developer.android.com/guide/topics/resources/app-languages
+        -->
+        <service
+            android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"
+            android:enabled="false"
+            android:exported="false">
+            <meta-data
+                android:name="autoStoreLocales"
+                android:value="true" />
+        </service>
+
+    </application>
+
+</manifest>

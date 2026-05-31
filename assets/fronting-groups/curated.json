@@ -1,0 +1,222 @@
+{
+  "_comment": [
+    "Curated fronting groups derived from patterniha/MITM-DomainFronting",
+    "(https://github.com/patterniha/MITM-DomainFronting) plus the",
+    "subsequent expansions tracked in config.fronting-groups.example.json",
+    "(PR #1191: vercel/fastly expansion + github-central/alive/gist/pubmed).",
+    "This file is the same data, restructured for rahgozar's `fronting_groups`",
+    "config shape. See docs/fronting-groups.md.",
+    "",
+    "Edge IPs rotate. If a group stops working, re-resolve `sni`",
+    "(`nslookup <sni>` or `dig +short <sni>`) and replace the IP in-place.",
+    "Order matters — github-* groups precede fastly because fastly's",
+    "`githubusercontent.com` suffix would otherwise eat",
+    "`objects-origin.githubusercontent.com` under first-match-wins; pinned",
+    "by `curated_groups::tests::curated_bundle_parses`. Each domain is",
+    "covered by exactly one group — `match_fronting_group` is single-shot",
+    "and returns the first match, so duplicate routes never get tried as",
+    "fallbacks (a dial failure surfaces the error rather than iterating).",
+    "",
+    "The `_comment` key is ignored by the deserializer (Config doesn't use",
+    "`deny_unknown_fields`).",
+    "",
+    "Must stay structurally identical (same groups in the same order with",
+    "matching name / ip / sni / domains) to config.fronting-groups.example.json's",
+    "`fronting_groups` array — `curated_groups::tests::example_file_mirrors_curated_bundle`",
+    "pins this so the CLI example and the UI's Load curated fronting groups",
+    "button can't drift. Formatting and ordering of unrelated top-level keys",
+    "(`_comment`, `mode`, etc.) are not part of the contract."
+  ],
+  "fronting_groups": [
+    {
+      "name": "github-central",
+      "ip": "140.82.113.21",
+      "sni": "collector.github.com",
+      "domains": [
+        "objects-origin.githubusercontent.com",
+        "api.individual.githubcopilot.com",
+        "glb-db52c2cf8be544.github.com",
+        "api.githubcopilot.com",
+        "collector.github.com",
+        "central.github.com"
+      ]
+    },
+    {
+      "name": "github-alive",
+      "ip": "140.82.112.26",
+      "sni": "alive.github.com",
+      "domains": [
+        "alive.github.com",
+        "live.github.com"
+      ]
+    },
+    {
+      "name": "github-uploads",
+      "ip": "140.82.121.13",
+      "sni": "uploads.github.com",
+      "domains": [
+        "uploads.github.com",
+        "alambic-origin.githubusercontent.com",
+        "camo-origin.githubusercontent.com"
+      ]
+    },
+    {
+      "name": "github",
+      "ip": "140.82.121.3",
+      "sni": "www.github.com",
+      "domains": [
+        "gist.github.com",
+        "github.com",
+        "www.github.com"
+      ]
+    },
+    {
+      "name": "vercel",
+      "ip": "216.230.84.193",
+      "sni": "nextjs.org",
+      "domains": [
+        "ai-sdk.dev",
+        "cursor.com",
+        "err.sh",
+        "hyper.is",
+        "nextjs.org",
+        "now.sh",
+        "react.dev",
+        "skills.sh",
+        "static.fun",
+        "title.sh",
+        "turborepo.org",
+        "vercel-dns.com",
+        "vercel-status.com",
+        "vercel.app",
+        "vercel.blog",
+        "vercel.com",
+        "vercel.dev",
+        "vercel.events",
+        "vercel.live",
+        "vercel.pub",
+        "vercel.sh",
+        "vercel.store",
+        "zeit-world.co.uk",
+        "zeit-world.com",
+        "zeit-world.net",
+        "zeit-world.org",
+        "zeit.co",
+        "zeit.sh",
+        "zeitworld.com"
+      ]
+    },
+    {
+      "name": "fastly",
+      "ip": "151.101.128.223",
+      "sni": "pypi.org",
+      "domains": [
+        "buzzfeed.com",
+        "cnn.com",
+        "cnn.io",
+        "cnn.it",
+        "cnnarabic.com",
+        "cnnlabs.com",
+        "cnnmoney.ch",
+        "cnnmoney.com",
+        "cnnmoneystream.com",
+        "cnnpolitics.com",
+        "developer.fastly.com",
+        "fastly-edge.com",
+        "fastly-terrarium.com",
+        "fastly.com",
+        "fastly.io",
+        "fastly.net",
+        "fastlylabs.com",
+        "fastlylb.net",
+        "github.io",
+        "githubassets.com",
+        "githubusercontent.com",
+        "pinimg.com",
+        "pinterest.com",
+        "pypi.org",
+        "redd.it",
+        "reddit.app.link",
+        "reddit.com",
+        "reddit.map.fastly.net",
+        "redditblog.com",
+        "reddithelp.com",
+        "redditinc.com",
+        "redditmail.com",
+        "redditmedia.com",
+        "redditspace.com",
+        "redditstatic.com",
+        "redditstatus.com",
+        "www.fastly.com",
+        "www.pinterest.com",
+        "www.python.org",
+        "xtls.github.io"
+      ]
+    },
+    {
+      "name": "amazon-cloudfront",
+      "ip": "3.33.186.135",
+      "sni": "kubernetes.io",
+      "domains": [
+        "bitballoon.com",
+        "netlify.app",
+        "netlify.com",
+        "netlifystatus.com"
+      ]
+    },
+    {
+      "name": "pubmed",
+      "ip": "34.107.134.59",
+      "sni": "pubmed.ncbi.nlm.nih.gov",
+      "domains": [
+        "pmc.ncbi.nlm.nih.gov"
+      ]
+    },
+    {
+      "name": "youtube-web",
+      "sni": "www.google.com",
+      "domains": [
+        "youtube.com",
+        "youtu.be",
+        "youtube-nocookie.com",
+        "ytimg.com",
+        "youtubei.googleapis.com"
+      ],
+      "force_ip": true,
+      "verify_names": [
+        "www.google.com"
+      ]
+    },
+    {
+      "name": "google-video",
+      "sni": "www.google.com",
+      "domains": [
+        "googlevideo.com"
+      ],
+      "force_ip": true,
+      "verify_names": [
+        "www.google.com"
+      ]
+    },
+    {
+      "name": "meta",
+      "sni": "www.microsoft.com",
+      "domains": [
+        "cdninstagram.com",
+        "facebook.com",
+        "facebook.net",
+        "fbcdn.net",
+        "fbsbx.com",
+        "instagram.com",
+        "messenger.com",
+        "threads.net",
+        "whatsapp.com",
+        "whatsapp.net"
+      ],
+      "force_ip": true,
+      "verify_names": [
+        "www.microsoft.com"
+      ]
+    }
+  ]
+}
