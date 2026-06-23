@@ -5228,46 +5228,16 @@ fn parse_exit_node_response(body: &[u8], allow_brotli_zstd: bool) -> Result<Vec<
         ));
     }
 
-    // Mirror parse_relay_json's decode-or-preserve policy for
-    // Content-Encoding. Background: exit-node runtimes built on
-    // `fetch` (Deno Deploy, modern Cloudflare Workers, recent Node)
-    // auto-decompress gzip and brotli BUT NOT zstd — so a
-    // destination served zstd reaches the relay as raw zstd bytes
-    // with `Content-Encoding: zstd` intact. Stripping the header
-    // unconditionally (as the pre-v2.1 code did) then delivers raw
-    // zstd to the browser as plaintext, corrupting the page.
-    //
-    // The new logic:
-    //   - Single-token gzip / br / identity / no header → strip
-    //     (body is plain because the fetch runtime decoded it).
-    //   - Single-token zstd with `allow_brotli_zstd` on → try to
-    //     decode here; strip on success, preserve header on
-    //     failure (browser tries its own decoder, browser surfaces
-    //     a real error rather than rahgozar silently corrupting).
-    //   - Single-token br with `allow_brotli_zstd` on → same
-    //     try-decode-then-strip-or-preserve, in case a runtime
-    //     somewhere doesn't auto-decode br either.
-    //   - Anything else (multi-token chain, unknown encoding,
-    //     decode failure) → preserve, let the browser try.
-    //
-    // When `allow_brotli_zstd` is off, the inner-request filter
-    // strips `br`/`zstd` from outbound Accept-Encoding, so
-    // destinations only ever respond with gzip/identity and the
-    // historical "always strip" assumption holds for everything we
-    // see here.
-    // When `allow_brotli_zstd` is OFF we stay in legacy mode: the
-    // inner-request filter stripped br/zstd from outbound
-    // Accept-Encoding, so destinations only ever respond with
-    // gzip/identity, and fetch-based exit-node runtimes
-    // auto-decoded gzip server-side — the body reaching us is
-    // always plain. Strip Content-Encoding unconditionally, just
-    // like the pre-v2.1 code.
-    //
-    // When the flag is ON, br/zstd CAN reach us as raw bytes (some
-    // exit-node runtimes don't auto-decode zstd), so apply the same
-    // decode-or-preserve policy parse_relay_json uses.
+    // The policy is decode-or-preserve:
+    //   - identity / no header -> strip (body is plain).
+    //   - gzip -> try to decode; strip on success, preserve on failure.
+    //   - br / zstd with `allow_brotli_zstd` on -> same try-decode policy.
+    //   - br / zstd / unknown with the flag off -> legacy strip, because the
+    //     request filter should have kept those encodings away from origins.
+    //   - multi-token chains with the flag on -> preserve, because we cannot
+    //     know which layer a runtime already peeled.
     let mut strip_content_encoding = true;
-    if allow_brotli_zstd && !body_bytes.is_empty() {
+    if !body_bytes.is_empty() {
         if let Some(headers_obj) = v.get("h").and_then(|x| x.as_object()) {
             let enc_owned = headers_obj
                 .iter()
@@ -5283,11 +5253,7 @@ fn parse_exit_node_response(body: &[u8], allow_brotli_zstd: bool) -> Result<Vec<
                     strip_content_encoding = true;
                 } else if tokens.len() == 1 {
                     match tokens[0].as_str() {
-                        "gzip" => {
-                            // fetch runtime auto-decoded — body plain.
-                            strip_content_encoding = true;
-                        }
-                        "br" => match decode_brotli(&body_bytes) {
+                        "gzip" => match decode_gzip(&body_bytes) {
                             Ok(d) => {
                                 body_bytes = d;
                                 strip_content_encoding = true;
@@ -5296,7 +5262,16 @@ fn parse_exit_node_response(body: &[u8], allow_brotli_zstd: bool) -> Result<Vec<
                                 strip_content_encoding = false;
                             }
                         },
-                        "zstd" => match decode_zstd(&body_bytes) {
+                        "br" if allow_brotli_zstd => match decode_brotli(&body_bytes) {
+                            Ok(d) => {
+                                body_bytes = d;
+                                strip_content_encoding = true;
+                            }
+                            Err(_) => {
+                                strip_content_encoding = false;
+                            }
+                        },
+                        "zstd" if allow_brotli_zstd => match decode_zstd(&body_bytes) {
                             Ok(d) => {
                                 body_bytes = d;
                                 strip_content_encoding = true;
@@ -5306,11 +5281,11 @@ fn parse_exit_node_response(body: &[u8], allow_brotli_zstd: bool) -> Result<Vec<
                             }
                         },
                         _ => {
-                            strip_content_encoding = false;
+                            strip_content_encoding = !allow_brotli_zstd;
                         }
                     }
                 } else {
-                    strip_content_encoding = false;
+                    strip_content_encoding = !allow_brotli_zstd;
                 }
             }
         }
@@ -7547,13 +7522,10 @@ mod tests {
 
     #[test]
     fn parse_exit_node_response_strips_stale_content_encoding() {
-        // The exit-node's fetch() auto-decompresses gzip/br/deflate response
-        // bodies, so the destination's Content-Encoding header is stale by
-        // the time it reaches us. Forwarding it to the browser as-is is
-        // exactly what ERR_CONTENT_DECODING_FAILED is — the browser tries
-        // to decompress already-plain bytes. The skip list in
-        // parse_exit_node_response must scrub `content-encoding` from `h`
-        // before synthesising the HTTP response.
+        // The exit-node's fetch() usually auto-decompresses gzip/br/deflate
+        // response bodies, so the destination's Content-Encoding header is
+        // often stale by the time it reaches us. Forwarding it to the browser
+        // as-is is exactly what ERR_CONTENT_DECODING_FAILED is.
         let envelope =
             br#"{"s":200,"h":{"content-type":"text/html","content-encoding":"br","x-served-by":"edge-1"},"b":"PGgxPmhpPC9oMT4="}"#;
         let raw = parse_exit_node_response(envelope, false)
@@ -7572,6 +7544,54 @@ mod tests {
         // Body is `<h1>hi</h1>` (11 bytes; base64-decoded from the b field).
         assert!(raw.ends_with(b"<h1>hi</h1>"));
         assert!(raw_str.contains("Content-Length: 11\r\n"));
+    }
+
+    #[test]
+    fn parse_exit_node_response_decodes_gzip_body_before_stripping_header() {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+
+        let plain = b"{\"gzipped\":true}";
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(plain).expect("write gzip fixture");
+        let gzipped = encoder.finish().expect("finish gzip fixture");
+        assert_eq!(&gzipped[..2], &[0x1f, 0x8b]);
+
+        let envelope = format!(
+            r#"{{"s":200,"h":{{"content-type":"application/json","content-encoding":"gzip"}},"b":"{}"}}"#,
+            B64.encode(&gzipped)
+        );
+        let raw = parse_exit_node_response(envelope.as_bytes(), false)
+            .expect("gzip body should decode before header stripping");
+        let raw_str = String::from_utf8_lossy(&raw);
+        assert!(raw_str.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(raw_str.contains("content-type: application/json\r\n"));
+        assert!(
+            !raw_str.to_ascii_lowercase().contains("content-encoding"),
+            "content-encoding must be stripped after successful gzip decode: {}",
+            raw_str
+        );
+        assert!(raw.ends_with(plain), "got: {}", raw_str);
+        assert!(raw_str.contains(&format!("Content-Length: {}\r\n", plain.len())));
+    }
+
+    #[test]
+    fn parse_exit_node_response_preserves_gzip_header_when_decode_fails() {
+        let body = b"not really gzip";
+        let envelope = format!(
+            r#"{{"s":200,"h":{{"content-encoding":"gzip"}},"b":"{}"}}"#,
+            B64.encode(body)
+        );
+        let raw = parse_exit_node_response(envelope.as_bytes(), false)
+            .expect("invalid gzip should pass through with header preserved");
+        let raw_str = String::from_utf8_lossy(&raw);
+        assert!(
+            raw_str.contains("content-encoding: gzip\r\n"),
+            "got: {}",
+            raw_str
+        );
+        assert!(raw.ends_with(body));
     }
 
     #[test]

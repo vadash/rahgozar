@@ -190,20 +190,23 @@ export async function handleExitNodeRequest(req: Request): Promise<Response> {
       redirect: "manual",
     });
 
-    // `fetch()` (Deno / Bun / Node) auto-decompresses gzip / br / deflate
-    // responses, so `resp.arrayBuffer()` returns plain bytes — but the
-    // destination's `Content-Encoding` header is still on `resp.headers`.
-    // Forwarding it would tell the client browser "this body is gzipped"
-    // when it isn't, producing `Content Encoding Error` (#964). Same goes
-    // for `Content-Length` — the post-decompression byte count is
-    // different from what the destination announced. Strip both. The
-    // Apps Script + Rust transport layer below us re-frames the wire body
-    // anyway, so neither header is meaningful to forward.
+    // `fetch()` usually auto-decompresses gzip / br / deflate responses,
+    // so `Content-Encoding` is often stale by the time `arrayBuffer()`
+    // returns. Some runtimes/endpoints still return encoded gzip bytes,
+    // though, so preserve that header when the body still has gzip magic.
+    // The Rust client also uses decode-or-preserve as a safety net.
     const data = new Uint8Array(await resp.arrayBuffer());
+    const isGzipBody = data.length >= 2 && data[0] === 0x1f && data[1] === 0x8b;
     const respHeaders: Record<string, string> = {};
     resp.headers.forEach((value, key) => {
       const lower = key.toLowerCase();
-      if (lower === "content-encoding" || lower === "content-length") return;
+      if (lower === "content-length") return;
+      if (lower === "content-encoding") {
+        if (value.toLowerCase().trim() === "gzip" && isGzipBody) {
+          respHeaders[key] = value;
+        }
+        return;
+      }
       respHeaders[key] = value;
     });
 
