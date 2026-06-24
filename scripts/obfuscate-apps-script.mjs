@@ -20,13 +20,42 @@ async function obfuscateFile(srcPath, outPath) {
     // Selective string concealing — encode all strings for lite protection
     stringConcealing: true,
     renameVariables: true,
-    renameGlobals: true,
+    // Preserve Apps Script entry points and runtime globals that must
+    // remain stable for authorization, JSON serialization, and built-in
+    // service access.
+    renameGlobals: (name) => {
+      if (
+        name === 'doGet' ||
+        name === 'doPost' ||
+        name === 'UrlFetchApp' ||
+        name === 'ContentService' ||
+        name === 'Utilities' ||
+        name === 'CacheService' ||
+        name === 'ScriptApp' ||
+        name === 'PropertiesService' ||
+        name === 'LockService' ||
+        name === 'console' ||
+        name === 'JSON' ||
+        name === 'Date' ||
+        name === 'Object' ||
+        name === 'Array' ||
+        name === 'String' ||
+        name === 'Number' ||
+        name === 'Boolean'
+      ) {
+        return false;
+      }
+      return true;
+    },
     renameLabels: true,
     identifierGenerator: 'mangled',
 
     compact: true,
     hexadecimalNumbers: true,
-    astScrambler: true,
+    // astScrambler disabled — it reorders top-level declarations which
+    // breaks Apps Script's global namespace contract; the runtime can
+    // no longer resolve doGet/doPost as HTTP handler entry points.
+    astScrambler: false,
 
     // Disabled for performance / compatibility
     calculator: false,
