@@ -58,22 +58,19 @@ enum DstAddr {
 }
 
 impl DstAddr {
-    fn to_socket_addr(&self) -> std::io::Result<SocketAddr> {
+    async fn to_socket_addr(&self) -> std::io::Result<SocketAddr> {
         match self {
             DstAddr::V4(ip, port) => Ok(SocketAddr::V4(SocketAddrV4::new(*ip, *port))),
             DstAddr::V6(ip, port) => Ok(SocketAddr::V6(SocketAddrV6::new(*ip, *port, 0, 0))),
-            DstAddr::Domain(name, port) => {
-                use std::net::ToSocketAddrs;
-                (name.as_str(), *port)
-                    .to_socket_addrs()?
-                    .next()
-                    .ok_or_else(|| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::AddrNotAvailable,
-                            "DNS resolution failed",
-                        )
-                    })
-            }
+            DstAddr::Domain(name, port) => tokio::net::lookup_host((name.as_str(), *port))
+                .await?
+                .next()
+                .ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::AddrNotAvailable,
+                        "DNS resolution failed",
+                    )
+                }),
         }
     }
 
@@ -283,6 +280,7 @@ pub async fn udpgw_server_task(stream: DuplexStream) {
 
     let mut buf = Vec::with_capacity(65536);
     let mut tmp = [0u8; 65536];
+    const BUF_MAX: usize = 65536 * 4;
 
     loop {
         let n = match read_half.read(&mut tmp).await {
@@ -297,7 +295,13 @@ pub async fn udpgw_server_task(stream: DuplexStream) {
                     buf.drain(..consumed);
                     handle_frame(&frame, &tx, &mut sockets).await;
                 }
-                Ok(None) => break,
+                Ok(None) => {
+                    if buf.len() >= BUF_MAX {
+                        tracing::warn!("udpgw buffer overflow ({} bytes); clearing", buf.len());
+                        buf.clear();
+                    }
+                    break;
+                }
                 Err(e) => {
                     tracing::warn!("udpgw frame parse error: {}", e);
                     if buf.len() >= 2 {
@@ -355,20 +359,15 @@ async fn get_or_create_socket(
     let addr_clone = addr.clone();
     let reader = tokio::spawn(async move {
         let mut recv_buf = vec![0u8; UDP_MTU];
-        loop {
-            match sock_clone.recv(&mut recv_buf).await {
-                Ok(n) => {
-                    let resp = serialise_frame(&Frame {
-                        flags: FLAG_DATA,
-                        conn_id,
-                        addr: Some(addr_clone.clone()),
-                        payload: recv_buf[..n].to_vec(),
-                    });
-                    if tx_clone.send(resp).await.is_err() {
-                        break;
-                    }
-                }
-                Err(_) => break,
+        while let Ok(n) = sock_clone.recv(&mut recv_buf).await {
+            let resp = serialise_frame(&Frame {
+                flags: FLAG_DATA,
+                conn_id,
+                addr: Some(addr_clone.clone()),
+                payload: recv_buf[..n].to_vec(),
+            });
+            if tx_clone.send(resp).await.is_err() {
+                break;
             }
         }
     });
@@ -422,7 +421,7 @@ async fn handle_frame(
         return;
     }
 
-    let dst_addr = match dst.to_socket_addr() {
+    let dst_addr = match dst.to_socket_addr().await {
         Ok(a) => a,
         Err(e) => {
             tracing::debug!("udpgw resolve failed: {}", e);
