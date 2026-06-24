@@ -116,6 +116,12 @@ const SKIP_HEADERS = {
   host: 1, connection: 1, "content-length": 1,
   "transfer-encoding": 1, "proxy-connection": 1, "proxy-authorization": 1,
   "priority": 1, te: 1,
+  "x-forwarded-for": 1, "x-forwarded-host": 1, "x-forwarded-proto": 1,
+  "x-forwarded-port": 1, "x-forwarded-server": 1, "x-forwarded-ssl": 1,
+  "x-real-ip": 1, "x-client-ip": 1, "x-originating-ip": 1,
+  "true-client-ip": 1, "cf-connecting-ip": 1, "fastly-client-ip": 1,
+  "x-cluster-client-ip": 1, "client-ip": 1,
+  forwarded: 1, via: 1,
 };
 
 const DECOY_HTML =
