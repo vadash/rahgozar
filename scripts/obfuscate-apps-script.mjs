@@ -10,6 +10,14 @@ const SRC_DIR = join(__dirname, '../assets/apps_script');
 const OUT_DIR = join(__dirname, '../assets/apps_script_obfsucated');
 
 const FILES = ['Code.cfw.gs', 'Code.gs', 'CodeFull.gs'];
+const OBFUSCATION_COPIES = 10;
+
+function copyOutPath(file, copyIndex) {
+  const suffix = `.copy${copyIndex}`;
+  return file.endsWith('.gs')
+    ? join(OUT_DIR, `${file.slice(0, -3)}${suffix}.gs`)
+    : join(OUT_DIR, `${file}${suffix}`);
+}
 
 async function obfuscateFile(srcPath, outPath) {
   const sourceCode = readFileSync(srcPath, 'utf8');
@@ -96,10 +104,13 @@ async function main() {
 
   for (const file of FILES) {
     const srcPath = join(SRC_DIR, file);
-    const outPath = join(OUT_DIR, file);
-    console.log(`Obfuscating ${file}...`);
-    await obfuscateFile(srcPath, outPath);
-    console.log(`  -> ${outPath}`);
+
+    for (let copyIndex = 1; copyIndex <= OBFUSCATION_COPIES; copyIndex += 1) {
+      const outPath = copyOutPath(file, copyIndex);
+      console.log(`Obfuscating ${file} copy ${copyIndex}/${OBFUSCATION_COPIES}...`);
+      await obfuscateFile(srcPath, outPath);
+      console.log(`  -> ${outPath}`);
+    }
   }
 
   console.log('Done!');
