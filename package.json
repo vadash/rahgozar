@@ -1,0 +1,1 @@
+{ "name": "rahgozar", "private": true, "type": "module", "scripts": { "obfuscate": "node scripts/obfuscate-apps-script.mjs" }, "dependencies": { "js-confuser": "latest" } }

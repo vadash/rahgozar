@@ -15,3 +15,5 @@
 # accidental `git add .`.
 /rahgozar-update.key
 /rahgozar-update.pub
+/assets/apps_script_obfsucated/
+/node_modules/
