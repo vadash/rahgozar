@@ -31,10 +31,10 @@ use tracing_subscriber::fmt::MakeWriter;
 use crate::state::AppState;
 
 /// Install the tracing subscriber. Two layers:
-///   - filter:  `RUST_LOG` if set, else "info,hyper=warn" — same default
-///              as the egui binary so the proxy emits the same volume.
-///   - format:  our custom writer below, which fans out to the ring
-///              buffer + the mpsc.
+/// - filter: `RUST_LOG` if set, else "info,hyper=warn" — same default
+///   as the egui binary so the proxy emits the same volume.
+/// - format: our custom writer below, which fans out to the ring
+///   buffer + the mpsc.
 ///
 /// Idempotent via `try_init` so a duplicated call (tests, hot-reload)
 /// doesn't panic.

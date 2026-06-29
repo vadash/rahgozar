@@ -192,20 +192,16 @@ pub fn get_status(state: State<'_, Arc<AppState>>) -> StatusDto {
 /// running state got dropped between read and unwrap.
 ///
 /// Values:
-///   - `today_calls`        — Apps Script relay invocations counted
-///                            against today's PT day. Resets at
-///                            00:00 PT (Google's quota cadence).
-///   - `today_bytes`        — Response bytes from those invocations.
-///   - `today_key`          — `YYYY-MM-DD` of the PT day the above
-///                            counts refer to. Useful for cross-
-///                            referencing Google's Apps Script
-///                            quota dashboard, which is also PT.
-///   - `today_reset_secs`   — Seconds until the next 00:00 PT
-///                            rollover.
-///   - `free_quota_per_day` — Free-tier Apps Script daily quota
-///                            (20,000 calls). Constant — surfaced
-///                            here so the frontend doesn't have to
-///                            re-encode it.
+/// - `today_calls` — Apps Script relay invocations counted against
+///   today's PT day. Resets at 00:00 PT (Google's quota cadence).
+/// - `today_bytes` — Response bytes from those invocations.
+/// - `today_key` — `YYYY-MM-DD` of the PT day the above counts refer
+///   to. Useful for cross-referencing Google's Apps Script quota
+///   dashboard, which is also PT.
+/// - `today_reset_secs` — Seconds until the next 00:00 PT rollover.
+/// - `free_quota_per_day` — Free-tier Apps Script daily quota (20,000
+///   calls). Constant — surfaced here so the frontend doesn't have to
+///   re-encode it.
 #[derive(Serialize)]
 pub struct UsageDto {
     pub today_calls: u64,

@@ -1451,7 +1451,7 @@ fn evict_if_at_cap(
         return;
     }
     let now = Instant::now();
-    map.retain(|_, e| e.until.map_or(false, |t| now < t));
+    map.retain(|_, e| e.until.is_some_and(|t| now < t));
     if map.len() >= LOCAL_BYPASS_BREAKER_MAX_ENTRIES {
         // Still at cap → evict the entry expiring soonest.
         // `min_by_key` on the `until` value; entries without an
@@ -3142,7 +3142,7 @@ mod tests {
                 LOCAL_BYPASS_PROFILE_STRIKE_THRESHOLD,
             );
             assert!(
-                entry.profile_fails.get("p07").is_none(),
+                !entry.profile_fails.contains_key("p07"),
                 "untouched profiles must not appear in the strike map",
             );
         }

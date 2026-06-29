@@ -220,7 +220,7 @@ pub const BATCH_MAGIC: &[u8; 4] = b"RG2B";
 /// 1 GiB theoretical, but in practice each frame is ≤16 KiB — the
 /// LOCAL_SOCKET_READ_BUFFER cap — so realistic batch bodies are
 /// ≤4 MiB).
-pub const MAX_BATCH_FRAMES: u8 = 255;
+pub const MAX_BATCH_FRAMES: usize = 255;
 
 /// 4 (magic) + 1 (count) = 5 bytes of fixed batch overhead, plus
 /// 4 bytes per-frame for the length prefix.
@@ -251,7 +251,7 @@ impl Batch {
     pub fn encode(&self) -> BytesMut {
         debug_assert!(!self.frames.is_empty(), "Batch must contain ≥1 frame");
         debug_assert!(
-            self.frames.len() <= MAX_BATCH_FRAMES as usize,
+            self.frames.len() <= MAX_BATCH_FRAMES,
             "Batch count {} exceeds cap {}",
             self.frames.len(),
             MAX_BATCH_FRAMES,
@@ -286,7 +286,7 @@ impl Batch {
         }
         let mut cursor = &input[4..];
         let count = cursor.get_u8();
-        if count == 0 || count > MAX_BATCH_FRAMES {
+        if count == 0 || count as usize > MAX_BATCH_FRAMES {
             return Err(DecodeError::BatchBadCount(count));
         }
         let mut frames = Vec::with_capacity(count as usize);

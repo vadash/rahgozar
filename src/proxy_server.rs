@@ -3114,6 +3114,9 @@ fn should_use_sni_rewrite(
         || hosts_override(hosts, host).is_some()
 }
 
+// Route dispatch takes the already-resolved mode handles individually;
+// bundling them would hide which branches consume which shared state.
+#[allow(clippy::too_many_arguments)]
 async fn dispatch_tunnel(
     sock: TcpStream,
     host: String,
@@ -5576,6 +5579,10 @@ async fn do_plain_http_passthrough(
     .await
 }
 
+// Plain HTTP replay needs the parsed request head plus the resolved
+// destination; keeping these separate avoids reparsing or temporary
+// structs in the hot CONNECT/absolute-form handoff path.
+#[allow(clippy::too_many_arguments)]
 async fn plain_http_passthrough_resolved(
     mut sock: TcpStream,
     method: &str,

@@ -329,7 +329,7 @@ pub async fn tunnel_connection_with_preface(
     let mut rng = OsRng;
     let mut sid: SessionId = [0u8; 16];
     rng.fill_bytes(&mut sid);
-    let (keys, hello) = SessionKeys::client_initiate(&inner.relay_pubkey, sid, &mut rng)
+    let (keys, hello) = SessionKeys::client_initiate(&inner.relay_pubkey, sid, rng)
         .map_err(|e| std::io::Error::other(format!("drive key agreement: {e}")))?;
     let keys = Arc::new(keys);
 
@@ -714,6 +714,9 @@ fn flush_c2r_batch(
 ///
 /// Synchronous (no .await) since `flush_c2r_batch` is now spawn-
 /// detached — that's the pipelining win, see its doc.
+// The pending-batch state is intentionally passed as separate mutable
+// references so flush/reset side effects stay explicit at call sites.
+#[allow(clippy::too_many_arguments)]
 fn push_c2r_frame(
     inner: &Arc<DriveMuxInner>,
     sid: SessionId,

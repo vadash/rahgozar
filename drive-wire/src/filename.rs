@@ -192,8 +192,7 @@ mod tests {
             seq: 3,
         }
         .format();
-        let upper = lower.replace("c2r_", "c2r_").to_string(); // prefix stays lowercase
-        let mid: String = lower
+        let upper_sid: String = lower
             .chars()
             .enumerate()
             .map(|(i, c)| {
@@ -206,8 +205,7 @@ mod tests {
                 }
             })
             .collect();
-        assert!(parse_filename(&upper).is_some());
-        assert!(parse_filename(&mid).is_some());
+        assert!(parse_filename(&upper_sid).is_some());
     }
 
     #[test]
@@ -246,7 +244,7 @@ mod tests {
         // Pin the invariant the doc comment promises: lex order is
         // wrong for seq >= 10, so consumers MUST re-sort numerically.
         let sid_b32 = encode_sid_b32(&[7u8; 16]);
-        let mut names = vec![format!("c2r_{sid_b32}_10"), format!("c2r_{sid_b32}_2")];
+        let mut names = [format!("c2r_{sid_b32}_10"), format!("c2r_{sid_b32}_2")];
         names.sort();
         // Lex order puts "10" before "2" — the bug consumers must guard against.
         assert!(names[0].ends_with("_10"));

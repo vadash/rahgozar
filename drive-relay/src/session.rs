@@ -423,6 +423,9 @@ fn pick_r2c_coalesce_delay(pending_bytes: usize) -> Duration {
 /// TCP socket while previous uploads are in flight. Bounded by the
 /// existing `inner.upload_permits` semaphore inside `upload_batch`'s
 /// caller path; failures log at warn but don't propagate.
+// The relay batches need shared state plus mutable coalescing state;
+// separate parameters keep flush side effects visible at call sites.
+#[allow(clippy::too_many_arguments)]
 fn push_r2c_frame(
     state: &Arc<RelayState>,
     sid: &SessionId,

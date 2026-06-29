@@ -3,22 +3,17 @@
 //!
 //! Subcommands:
 //!
-//!   - `run`               — start the daemon. Validates config +
-//!                           key file, runs the OAuth refresh, then
-//!                           spawns the shared Drive poller +
-//!                           per-session forwarder + orphan reaper.
-//!                           Blocks on SIGINT/SIGTERM.
-//!   - `oauth device-code` — RFC 8628 device-code OAuth flow.
-//!                           Requires `--client-id` + `--client-secret`
-//!                           (BYO; see `docs/drive_oauth_setup.md`).
-//!                           Prints `user_code` + `verification_url`,
-//!                           polls Google, saves all three OAuth
-//!                           credentials into the relay's config.json.
-//!   - `keygen`            — mint a fresh X25519 keypair. Writes
-//!                           the 32-byte secret to disk (mode 0600
-//!                           on unix); prints the bech32m public key
-//!                           for the operator to paste into the
-//!                           client's `drive.relay_pubkey` config.
+//! - `run` — start the daemon. Validates config + key file, runs the
+//!   OAuth refresh, then spawns the shared Drive poller + per-session
+//!   forwarder + orphan reaper. Blocks on SIGINT/SIGTERM.
+//! - `oauth device-code` — RFC 8628 device-code OAuth flow. Requires
+//!   `--client-id` + `--client-secret` (BYO; see
+//!   `docs/drive_oauth_setup.md`). Prints `user_code` +
+//!   `verification_url`, polls Google, saves all three OAuth
+//!   credentials into the relay's config.json.
+//! - `keygen` — mint a fresh X25519 keypair. Writes the 32-byte secret
+//!   to disk (mode 0600 on unix); prints the bech32m public key for the
+//!   operator to paste into the client's `drive.relay_pubkey` config.
 //!
 //! See `drive-relay/scripts/install-drive-relay.sh` for the
 //! end-to-end deployment guide (user, systemd, SELinux/AppArmor

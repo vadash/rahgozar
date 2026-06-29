@@ -908,7 +908,7 @@ impl Default for DriveConfig {
     /// Match the deserialize-from-`{}` shape. A `#[derive(Default)]`
     /// would emit `u32::default() = 0` for the tuning knobs, which is
     /// then rejected by `Config::validate` ("poll_interval_ms must be
-    /// > 0") with a confusing error message the moment the user tries
+    /// \> 0") with a confusing error message the moment the user tries
     /// to switch into Drive mode — the parent's `#[serde(default)]`
     /// on the `drive` field calls THIS impl, not the per-field
     /// `#[serde(default = "...")]` annotations (those only fire on
