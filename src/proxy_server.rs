@@ -2498,8 +2498,16 @@ const UDP_INITIAL_POLL_DELAY: Duration = Duration::from_millis(500);
 /// Cap on the exponential backoff for an idle session. After this many
 /// seconds of zero traffic in either direction, polls happen at most
 /// once per `UDP_MAX_POLL_DELAY` plus the tunnel-node long-poll window —
-/// so an idle UDP destination costs roughly one batch slot every 35 s.
+/// so an idle UDP destination costs roughly one batch slot every 35 s
+/// until `UDP_SESSION_IDLE_TTL` closes it.
 const UDP_MAX_POLL_DELAY: Duration = Duration::from_secs(30);
+
+/// Client-owned lifetime for a per-target UDP tunnel session with no
+/// real uplink or downlink packets. Tunnel-node treats empty `udp_data`
+/// polls as session activity so long-polling clients do not get
+/// server-reaped spuriously; this proxy-side TTL is what intentionally
+/// closes silent flows while the SOCKS5 UDP ASSOCIATE remains open.
+const UDP_SESSION_IDLE_TTL: Duration = Duration::from_secs(120);
 
 /// Cap on simultaneous UDP relay sessions per SOCKS5 ASSOCIATE. STUN
 /// candidate gathering and DNS fanout produce dozens of distinct
@@ -2836,6 +2844,9 @@ async fn handle_socks5_udp_associate(
 ///     the matching `Sender` (SOCKS5 client gone, or session evicted).
 ///   * `mux.udp_data` returns eof / error when the tunnel-node session
 ///     is reaped or the target is unreachable.
+///   * No real uplink/downlink traffic arrives before
+///     `UDP_SESSION_IDLE_TTL`; empty polls alone do not keep the
+///     proxy-side task alive.
 async fn udp_session_task(
     mux: Arc<TunnelMux>,
     udp: Arc<UdpSocket>,
@@ -2845,7 +2856,20 @@ async fn udp_session_task(
     mut uplink_rx: mpsc::Receiver<Bytes>,
 ) {
     let mut backoff = UDP_INITIAL_POLL_DELAY;
+    let mut last_activity = Instant::now();
     loop {
+        let Some(idle_remaining) = udp_session_idle_remaining(last_activity, Instant::now()) else {
+            tracing::debug!(
+                "udp session {} for {}:{} idle for {:?}; closing",
+                sid,
+                target.host,
+                target.port,
+                UDP_SESSION_IDLE_TTL,
+            );
+            break;
+        };
+        let poll_delay = backoff.min(idle_remaining);
+
         // `biased;` prefers uplink so an active client doesn't get
         // shadowed by a long sleep. Both branches are cancel-safe.
         let resp = tokio::select! {
@@ -2853,7 +2877,9 @@ async fn udp_session_task(
             uplink = uplink_rx.recv() => {
                 let Some(payload) = uplink else { break; };
                 // Active uplink — reset the empty-poll backoff so the
-                // next inbound poll happens promptly.
+                // next inbound poll happens promptly and extend the
+                // proxy-owned idle TTL.
+                last_activity = Instant::now();
                 backoff = UDP_INITIAL_POLL_DELAY;
                 match mux.udp_data(&sid, payload).await {
                     Ok(r) => r,
@@ -2863,7 +2889,10 @@ async fn udp_session_task(
                     }
                 }
             }
-            _ = tokio::time::sleep(backoff) => {
+            _ = tokio::time::sleep(poll_delay) => {
+                // Even when the sleep reaches the idle deadline, make one
+                // final empty poll. Queued upstream packets are real
+                // downlink activity and should reset the proxy-side TTL.
                 match mux.udp_data(&sid, Vec::new()).await {
                     Ok(r) => r,
                     Err(e) => {
@@ -2878,6 +2907,7 @@ async fn udp_session_task(
         }
         let got_pkts = resp.pkts.as_ref().map(|p| !p.is_empty()).unwrap_or(false);
         if got_pkts {
+            last_activity = Instant::now();
             send_udp_response_packets(&udp, client_addr, &target, &resp).await;
             backoff = UDP_INITIAL_POLL_DELAY;
         } else {
@@ -2889,6 +2919,15 @@ async fn udp_session_task(
     // Be polite even if the session is already gone server-side; the
     // tunnel-node tolerates close on an unknown sid.
     mux.close_session(&sid).await;
+}
+
+fn udp_session_idle_remaining(last_activity: Instant, now: Instant) -> Option<Duration> {
+    let elapsed = now.saturating_duration_since(last_activity);
+    if elapsed >= UDP_SESSION_IDLE_TTL {
+        None
+    } else {
+        Some(UDP_SESSION_IDLE_TTL - elapsed)
+    }
 }
 
 async fn send_udp_response_packets(
@@ -5790,6 +5829,31 @@ mod tests {
             "block_stun=true must NOT touch :443 — TURNS fallback lives there",
         );
         assert!(!should_drop(false, https_target.port));
+    }
+
+    #[test]
+    fn udp_session_idle_remaining_expires_at_ttl() {
+        let start = Instant::now();
+
+        assert_eq!(
+            udp_session_idle_remaining(start, start),
+            Some(UDP_SESSION_IDLE_TTL)
+        );
+        assert_eq!(
+            udp_session_idle_remaining(start, start + UDP_SESSION_IDLE_TTL / 2),
+            Some(UDP_SESSION_IDLE_TTL / 2)
+        );
+        assert_eq!(
+            udp_session_idle_remaining(start, start + UDP_SESSION_IDLE_TTL),
+            None
+        );
+        assert_eq!(
+            udp_session_idle_remaining(
+                start,
+                start + UDP_SESSION_IDLE_TTL + Duration::from_secs(1),
+            ),
+            None
+        );
     }
 
     fn headers(pairs: &[(&str, &str)]) -> Vec<(String, String)> {

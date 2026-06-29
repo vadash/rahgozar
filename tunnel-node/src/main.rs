@@ -1019,8 +1019,9 @@ async fn udp_reader_task(socket: Arc<UdpSocket>, session: Arc<UdpSessionInner>) 
                 drop(packets);
                 // Inbound packet counts as activity — keeps server-push
                 // UDP (e.g. SIP/RTP, server-sent telemetry) out of the
-                // idle reaper. Empty `udp_data` polls deliberately do
-                // NOT bump this (see batch handler).
+                // idle reaper. Empty `udp_data` polls also refresh this
+                // in the batch handler; the proxy owns the idle TTL for
+                // intentionally closing silent UDP flows.
                 *session.last_active.lock().await = Instant::now();
                 session.notify.notify_one();
             }

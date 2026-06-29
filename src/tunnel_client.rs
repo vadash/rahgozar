@@ -1709,7 +1709,7 @@ pub async fn tunnel_connection(
     };
 
     // Keep a clone of initial_data for the transparent-retry path below.
-    // The browser's ClientHello (or other first bytes) was consumed from
+    // If those first bytes are a TLS ClientHello, they were consumed from
     // the local socket during the pre-read and must be replayed if the
     // first tunnel attempt dies with RemoteEof + 0 bytes written.
     let retry_ready_data = initial_data.clone();
@@ -1741,7 +1741,7 @@ pub async fn tunnel_connection(
     //
     // Returns (tunnel_end, first_resp_wrote_data) so the caller can
     // decide whether a transparent retry is safe.
-    let (result, first_resp_wrote_data) = async {
+    let first_attempt = async {
         let mut first_resp_wrote_data = false;
         if let Some(resp) = first_resp {
             match write_tunnel_response(&mut sock, &resp).await? {
@@ -1772,24 +1772,24 @@ pub async fn tunnel_connection(
         let end = tunnel_loop(&mut sock, &sid, mux, pending_client_data).await?;
         Ok((end, first_resp_wrote_data))
     }
-    .await?;
+    .await;
 
     // When RemoteEof arrives and zero bytes were written to the browser,
-    // the browser hasn't seen any server response yet — its TLS state
-    // machine is still waiting for the first server data. The tunnel
-    // died before anything useful came back (usually because the upstream
-    // server or a CDN intermediary closed the TCP connection immediately
-    // after connect, a common pattern during login redirect chains).
-    // Opening a fresh tunnel and re-piping the client's data is
-    // semantically identical to the browser's own retry when the user
-    // presses F5. We keep `initial_data` alive for this retry: the
-    // browser already wrote its ClientHello to the local socket (we
-    // consumed it during pre-read), so we replay it as
-    // `pending_client_data` on the new tunnel_loop iteration.
-    let result = match result {
-        TunnelEnd::RemoteEof {
-            bytes_to_browser: 0,
-        } if !first_resp_wrote_data => {
+    // and the captured first bytes are a TLS ClientHello, the browser's
+    // TLS state machine is still waiting for the first server data. The
+    // tunnel died before anything useful came back. Opening a fresh
+    // tunnel and replaying that ClientHello is equivalent to starting the
+    // TLS connection over. Do not do this for arbitrary cleartext (for
+    // example HTTP on port 80): the consumed bytes may already include a
+    // non-idempotent request body that reached the origin.
+    let result = match first_attempt {
+        Ok((TunnelEnd::RemoteEof { bytes_to_browser }, first_resp_wrote_data))
+            if can_retry_remote_eof(
+                first_resp_wrote_data,
+                bytes_to_browser,
+                retry_ready_data.as_ref(),
+            ) =>
+        {
             mux.send(MuxMsg::Close { sid: sid.clone() }).await;
             pipeline_debug::session_end(&sid);
             tracing::info!(
@@ -1799,26 +1799,17 @@ pub async fn tunnel_connection(
                 port
             );
 
-            // Open a fresh tunnel session. The browser's ClientHello
-            // (or other initial data) was consumed during the pre-read
-            // phase and must be replayed as pending_client_data so the
-            // new tunnel_node session can forward it upstream. When
-            // retry_ready_data is None (no pre-read, e.g. a server-speaks-
-            // first port or preread_loss), the client's data is still
-            // sitting in the browser socket buffer and will be read
-            // naturally by tunnel_loop.
+            // Open a fresh tunnel session. The browser's ClientHello was
+            // consumed during the pre-read phase and must be replayed as
+            // pending_client_data so the new tunnel_node session can
+            // forward it upstream.
             let retry_initial_data = retry_ready_data.clone();
             match connect_plain(host, port, mux).await {
                 Ok(retry_sid) => {
                     pipeline_debug::session_start(&retry_sid);
                     let retry_result =
                         tunnel_loop(&mut sock, &retry_sid, mux, retry_initial_data).await;
-                    if !matches!(
-                        retry_result,
-                        Ok(TunnelEnd::RemoteEof {
-                            bytes_to_browser: 0
-                        })
-                    ) {
+                    if !matches!(retry_result, Ok(TunnelEnd::RemoteEof { .. })) {
                         mux.send(MuxMsg::Close {
                             sid: retry_sid.clone(),
                         })
@@ -1848,7 +1839,7 @@ pub async fn tunnel_connection(
                 }
             }
         }
-        other => {
+        Ok((other, _)) => {
             if !matches!(other, TunnelEnd::RemoteEof { .. }) {
                 mux.send(MuxMsg::Close { sid: sid.clone() }).await;
             } else {
@@ -1860,6 +1851,18 @@ pub async fn tunnel_connection(
             pipeline_debug::session_end(&sid);
             tracing::info!("tunnel session {} closed for {}:{}", sid, host, port);
             Ok(other)
+        }
+        Err(e) => {
+            mux.send(MuxMsg::Close { sid: sid.clone() }).await;
+            pipeline_debug::session_end(&sid);
+            tracing::info!(
+                "tunnel session {} closed after local I/O error for {}:{}: {}",
+                sid,
+                host,
+                port,
+                e
+            );
+            Err(e)
         }
     };
 
@@ -2053,6 +2056,18 @@ fn is_retryable_connect_data_transport_error(e: &str) -> bool {
 
 fn is_tls_record_handshake(data: &[u8]) -> bool {
     matches!(data, [0x16, 0x03, ..])
+}
+
+fn can_retry_remote_eof(
+    first_resp_wrote_data: bool,
+    bytes_to_browser: u64,
+    retry_ready_data: Option<&Bytes>,
+) -> bool {
+    bytes_to_browser == 0
+        && !first_resp_wrote_data
+        && retry_ready_data
+            .map(|data| is_tls_record_handshake(data))
+            .unwrap_or(false)
 }
 
 /// Metadata for one in-flight Data op, returned alongside its reply.
@@ -2931,6 +2946,18 @@ mod tests {
         assert!(!is_tls_record_handshake(&[0x16]));
         assert!(!is_tls_record_handshake(&[0x16, 0x04, 0x00]));
         assert!(!is_tls_record_handshake(b"GET / HTTP/1.1\r\n\r\n"));
+    }
+
+    #[test]
+    fn remote_eof_retry_requires_tls_initial_data() {
+        let tls = Bytes::from_static(&[0x16, 0x03, 0x03, 0x00, 0x01]);
+        let http = Bytes::from_static(b"POST /upload HTTP/1.1\r\n\r\nbody");
+
+        assert!(can_retry_remote_eof(false, 0, Some(&tls)));
+        assert!(!can_retry_remote_eof(true, 0, Some(&tls)));
+        assert!(!can_retry_remote_eof(false, 1, Some(&tls)));
+        assert!(!can_retry_remote_eof(false, 0, Some(&http)));
+        assert!(!can_retry_remote_eof(false, 0, None));
     }
 
     #[tokio::test]
