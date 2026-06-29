@@ -1825,7 +1825,6 @@ async fn handle_batch(State(state): State<AppState>, body: Bytes) -> impl IntoRe
                     sessions.get(&sid).map(|s| s.inner.clone())
                 };
                 if let Some(inner) = inner {
-                    let mut had_uplink = false;
                     if let Some(ref data_b64) = op.d {
                         if !data_b64.is_empty() {
                             let bytes = match B64.decode(data_b64) {
@@ -1840,18 +1839,22 @@ async fn handle_batch(State(state): State<AppState>, body: Bytes) -> impl IntoRe
                             };
                             if !bytes.is_empty() {
                                 had_writes_or_connects = true;
-                                had_uplink = true;
                                 let _ = inner.socket.send(&bytes).await;
                             }
                         }
                     }
-                    // last_active is bumped only on real activity:
-                    // outbound here, or inbound in udp_reader_task.
-                    // Empty long-poll batches must not refresh it, else
-                    // the idle reaper never fires.
-                    if had_uplink {
-                        *inner.last_active.lock().await = Instant::now();
-                    }
+                    // Bump last_active on every poll, not just ones with
+                    // uplink data. If the client is polling a session,
+                    // the session is alive from the client's perspective
+                    // and should not be reaped. Skipping the bump on
+                    // empty polls caused the idle reaper to kill sessions
+                    // that the client was still actively long-polling,
+                    // producing spurious EOFs that the browser surfaced
+                    // as SSL connection errors. The 120 s idle reaper
+                    // still catches truly orphaned sessions where the
+                    // client has stopped polling entirely (e.g. after a
+                    // crash).
+                    *inner.last_active.lock().await = Instant::now();
                     udp_drains.push((i, sid, inner, op.seq));
                 } else {
                     results.push((i, eof_response(sid, op.seq)));
@@ -2487,7 +2490,11 @@ async fn cleanup_task(
             tracing::info!("reaped idle session {}", sid);
         }
         if !tcp_reaped.is_empty() {
-            tracing::info!("cleanup: reaped {}, {} active", tcp_reaped.len(), tcp_active);
+            tracing::info!(
+                "cleanup: reaped {}, {} active",
+                tcp_reaped.len(),
+                tcp_active
+            );
         }
 
         // UDP sessions get a tighter idle window because UDP flows

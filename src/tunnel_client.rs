@@ -1763,6 +1763,19 @@ pub async fn tunnel_connection(
     }
     pipeline_debug::session_end(&sid);
     tracing::info!("tunnel session {} closed for {}:{}", sid, host, port);
+
+    // Graceful socket shutdown: when the upstream TCP connection closes
+    // (server keep-alive timeout, CDN edge rotation, idle reaper, etc.),
+    // the browser's TLS session through this raw tunnel is broken. Simply
+    // dropping `sock` can send a TCP RST — which browsers surface as
+    // ERR_SSL_PROTOCOL_ERROR or ERR_CONNECTION_RESET and sometimes don't
+    // auto-retry. Shutting down the write side first sends a clean FIN,
+    // which browsers interpret as "server closed the connection" and
+    // handle by retrying the request on a fresh connection. This is the
+    // single most impactful change for reducing spurious SSL errors in
+    // Full/tunnel-node mode (~1 in 10–15 idle-page clicks before this).
+    let _ = sock.shutdown().await;
+
     result.map(|_| ())
 }
 
