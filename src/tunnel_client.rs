@@ -1708,6 +1708,11 @@ pub async fn tunnel_connection(
         }
     };
 
+    // Keep a clone of initial_data for the transparent-retry path below.
+    // The browser's ClientHello (or other first bytes) was consumed from
+    // the local socket during the pre-read and must be replayed if the
+    // first tunnel attempt dies with RemoteEof + 0 bytes written.
+    let retry_ready_data = initial_data.clone();
     let (sid, first_resp, pending_client_data) = match initial_data {
         Some(data) => match connect_with_initial_data(host, port, data.clone(), mux).await? {
             ConnectDataOutcome::Opened { sid, response } => (sid, Some(response), None),
@@ -1733,36 +1738,130 @@ pub async fn tunnel_connection(
     // during runtime shutdown. The explicit send below covers every
     // non-panic path; a panic during tunnel_loop would leak the session
     // on the tunnel-node until its 5-minute idle reaper runs.
-    let result = async {
+    //
+    // Returns (tunnel_end, first_resp_wrote_data) so the caller can
+    // decide whether a transparent retry is safe.
+    let (result, first_resp_wrote_data) = async {
+        let mut first_resp_wrote_data = false;
         if let Some(resp) = first_resp {
             match write_tunnel_response(&mut sock, &resp).await? {
-                WriteOutcome::Wrote | WriteOutcome::NoData => {}
+                WriteOutcome::Wrote => {
+                    first_resp_wrote_data = true;
+                }
+                WriteOutcome::NoData => {}
                 WriteOutcome::BadBase64 => {
                     tracing::error!(
                         "tunnel session {}: bad base64 in connect_data response",
                         sid
                     );
-                    return Ok(TunnelEnd::NeedsClose);
+                    return Ok::<(TunnelEnd, bool), std::io::Error>((
+                        TunnelEnd::NeedsClose,
+                        first_resp_wrote_data,
+                    ));
                 }
             }
             if resp.eof.unwrap_or(false) {
-                return Ok(TunnelEnd::RemoteEof);
+                return Ok::<(TunnelEnd, bool), std::io::Error>((
+                    TunnelEnd::RemoteEof {
+                        bytes_to_browser: 0,
+                    },
+                    first_resp_wrote_data,
+                ));
             }
         }
-        tunnel_loop(&mut sock, &sid, mux, pending_client_data).await
+        let end = tunnel_loop(&mut sock, &sid, mux, pending_client_data).await?;
+        Ok((end, first_resp_wrote_data))
     }
-    .await;
+    .await?;
 
-    if !matches!(result, Ok(TunnelEnd::RemoteEof)) {
-        mux.send(MuxMsg::Close { sid: sid.clone() }).await;
-    } else {
-        tracing::debug!(
-            "tunnel session {}: remote eof already reaped session; skipping close op",
-            sid
-        );
-    }
-    pipeline_debug::session_end(&sid);
-    tracing::info!("tunnel session {} closed for {}:{}", sid, host, port);
+    // When RemoteEof arrives and zero bytes were written to the browser,
+    // the browser hasn't seen any server response yet — its TLS state
+    // machine is still waiting for the first server data. The tunnel
+    // died before anything useful came back (usually because the upstream
+    // server or a CDN intermediary closed the TCP connection immediately
+    // after connect, a common pattern during login redirect chains).
+    // Opening a fresh tunnel and re-piping the client's data is
+    // semantically identical to the browser's own retry when the user
+    // presses F5. We keep `initial_data` alive for this retry: the
+    // browser already wrote its ClientHello to the local socket (we
+    // consumed it during pre-read), so we replay it as
+    // `pending_client_data` on the new tunnel_loop iteration.
+    let result = match result {
+        TunnelEnd::RemoteEof {
+            bytes_to_browser: 0,
+        } if !first_resp_wrote_data => {
+            mux.send(MuxMsg::Close { sid: sid.clone() }).await;
+            pipeline_debug::session_end(&sid);
+            tracing::info!(
+                "tunnel session {} remote-EOF with 0 bytes, retrying for {}:{}",
+                sid,
+                host,
+                port
+            );
+
+            // Open a fresh tunnel session. The browser's ClientHello
+            // (or other initial data) was consumed during the pre-read
+            // phase and must be replayed as pending_client_data so the
+            // new tunnel_node session can forward it upstream. When
+            // retry_ready_data is None (no pre-read, e.g. a server-speaks-
+            // first port or preread_loss), the client's data is still
+            // sitting in the browser socket buffer and will be read
+            // naturally by tunnel_loop.
+            let retry_initial_data = retry_ready_data.clone();
+            match connect_plain(host, port, mux).await {
+                Ok(retry_sid) => {
+                    pipeline_debug::session_start(&retry_sid);
+                    let retry_result =
+                        tunnel_loop(&mut sock, &retry_sid, mux, retry_initial_data).await;
+                    if !matches!(
+                        retry_result,
+                        Ok(TunnelEnd::RemoteEof {
+                            bytes_to_browser: 0
+                        })
+                    ) {
+                        mux.send(MuxMsg::Close {
+                            sid: retry_sid.clone(),
+                        })
+                        .await;
+                    } else {
+                        tracing::debug!(
+                            "tunnel session {}: remote eof already reaped session; skipping close op",
+                            retry_sid
+                        );
+                    }
+                    pipeline_debug::session_end(&retry_sid);
+                    tracing::info!(
+                        "retry tunnel session {} closed for {}:{}",
+                        retry_sid,
+                        host,
+                        port
+                    );
+                    retry_result
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "tunnel session {}: remote-EOF retry connect failed: {}",
+                        sid,
+                        e
+                    );
+                    Err(e)
+                }
+            }
+        }
+        other => {
+            if !matches!(other, TunnelEnd::RemoteEof { .. }) {
+                mux.send(MuxMsg::Close { sid: sid.clone() }).await;
+            } else {
+                tracing::debug!(
+                    "tunnel session {}: remote eof already reaped session; skipping close op",
+                    sid
+                );
+            }
+            pipeline_debug::session_end(&sid);
+            tracing::info!("tunnel session {} closed for {}:{}", sid, host, port);
+            Ok(other)
+        }
+    };
 
     // Graceful socket shutdown: when the upstream TCP connection closes
     // (server keep-alive timeout, CDN edge rotation, idle reaper, etc.),
@@ -1966,8 +2065,14 @@ struct InflightMeta {
 enum TunnelEnd {
     /// The tunnel-node returned EOF in a data response. The node removes
     /// the session in that same batch, so sending an extra `close` would
-    /// only burn one more Apps Script fetch.
-    RemoteEof,
+    /// only burn one more Apps Script fetch. `bytes_to_browser` counts
+    /// how many server-origin bytes were written to the browser socket
+    /// during tunnel_loop (excludes the connect_data first_resp bytes,
+    /// which the caller tracks separately). Used to decide whether a
+    /// transparent retry is safe: zero bytes written means the browser
+    /// hasn't processed any server response yet, so retrying on a fresh
+    /// tunnel is equivalent to the browser's own F5 retry.
+    RemoteEof { bytes_to_browser: u64 },
     /// The local client closed first or the tunnel ended on an error.
     /// Send an explicit close so the tunnel-node can free resources now.
     NeedsClose,
@@ -2641,7 +2746,9 @@ async fn tunnel_loop(
         pipeline_debug::set_elevated(n.saturating_sub(1));
     }
     Ok(if eof_seen {
-        TunnelEnd::RemoteEof
+        TunnelEnd::RemoteEof {
+            bytes_to_browser: total_download_bytes,
+        }
     } else {
         TunnelEnd::NeedsClose
     })
