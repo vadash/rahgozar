@@ -17,3 +17,4 @@
 /rahgozar-update.pub
 /assets/apps_script_obfsucated/
 /node_modules/
+*.release
