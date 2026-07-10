@@ -157,8 +157,14 @@ TUNNEL_AUTH_KEY=your-secret PORT=8080 ./target/release/tunnel-node
     {"op":"close","sid":"uuid3"}
   ]
 }
-→ {"r": [{...}, {...}, {...}]}
+→ {"r": [{...}, {...}, {...}], "zc": 3}
 ```
+
+`zc` is a capability bit field that retains its original numeric wire shape:
+bit 0 (`1`) supports zstd-compressed batch operations/responses, and bit 1
+(`2`) supports safe replay of sequenced TCP-only data batches. A replayable
+upload must carry `sid`, `seq`, and `wseq`; polls carry `sid` and `seq`.
+Connect, close, UDP, and mixed batches are never replay-cached.
 
 ### Health check: `GET /health` → `ok`
 
@@ -168,4 +174,7 @@ The rahgozar client runs a pipelined batch multiplexer in full mode. Each Apps S
 
 More deployments = more concurrent batches hitting the tunnel-node and less chance that one Apps Script account becomes the bottleneck. They increase total throughput and reduce queueing under load, but a fresh HTTPS request still normally needs two Apps Script cycles to first response data.
 
-The tunnel-node itself is stateless per-request (sessions are keyed by UUID), so it handles concurrent batches naturally. For best results, deploy 3–12 Apps Script instances across separate Google accounts and list all their deployment IDs in the client config.
+Sessions are keyed by UUID, and a bounded 60-second replay registry coalesces
+duplicate eligible TCP batches and returns the original encoded response. For
+best results, deploy 3–12 Apps Script instances across separate Google accounts
+and list all their deployment IDs in the client config.

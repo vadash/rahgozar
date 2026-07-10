@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::{lookup_host, TcpStream, UdpSocket};
-use tokio::sync::{mpsc, Mutex, Notify};
+use tokio::sync::{mpsc, watch, Mutex, Notify};
 use tokio::task::JoinSet;
 
 mod udpgw;
@@ -148,6 +148,13 @@ const MAX_PENDING_WRITES_PER_SESSION: usize = 32;
 /// `TCP_DRAIN_MAX_BYTES` (16 MiB) — beyond that, the cumulative buffered
 /// upload doesn't fit in one drain response anyway.
 const MAX_PENDING_WRITE_BYTES_PER_SESSION: usize = 16 * 1024 * 1024;
+
+const CAP_ZSTD: u8 = 1 << 0;
+const CAP_SAFE_BATCH_REPLAY: u8 = 1 << 1;
+const SERVER_CAPABILITIES: u8 = CAP_ZSTD | CAP_SAFE_BATCH_REPLAY;
+const REPLAY_TTL: Duration = Duration::from_secs(60);
+const REPLAY_MAX_ENTRIES: usize = 4096;
+const REPLAY_MAX_BYTES: usize = 64 * 1024 * 1024;
 
 /// First queue-drop on a session always logs at warn level; subsequent
 /// drops log at debug only every Nth occurrence so a single congested
@@ -1322,6 +1329,143 @@ struct AppState {
     /// this tunnel-node so a hot endpoint discovered by one client
     /// benefits the next.
     prewarm: Arc<PrewarmState>,
+    replay: Arc<Mutex<ReplayRegistry>>,
+}
+
+#[derive(Default)]
+struct ReplayRegistry {
+    entries: HashMap<[u8; 32], ReplayEntry>,
+    order: VecDeque<[u8; 32]>,
+    ready_bytes: usize,
+    hits: u64,
+    coalesced: u64,
+    evictions: u64,
+}
+
+enum ReplayEntry {
+    Pending {
+        tx: watch::Sender<Option<Arc<Vec<u8>>>>,
+        created: Instant,
+    },
+    Ready {
+        body: Arc<Vec<u8>>,
+        completed: Instant,
+    },
+}
+
+enum ReplayClaim {
+    Owner(watch::Sender<Option<Arc<Vec<u8>>>>),
+    Wait(watch::Receiver<Option<Arc<Vec<u8>>>>),
+    Hit(Arc<Vec<u8>>),
+}
+
+impl ReplayRegistry {
+    fn claim(&mut self, key: [u8; 32]) -> ReplayClaim {
+        self.expire();
+        match self.entries.get(&key) {
+            Some(ReplayEntry::Ready { body, .. }) => {
+                self.hits += 1;
+                tracing::info!("batch replay cache hit (hits={})", self.hits);
+                ReplayClaim::Hit(body.clone())
+            }
+            Some(ReplayEntry::Pending { tx, .. }) => {
+                self.coalesced += 1;
+                tracing::info!(
+                    "batch replay duplicate coalesced (coalesced={})",
+                    self.coalesced
+                );
+                ReplayClaim::Wait(tx.subscribe())
+            }
+            None => {
+                let (tx, _rx) = watch::channel(None);
+                self.entries.insert(
+                    key,
+                    ReplayEntry::Pending {
+                        tx: tx.clone(),
+                        created: Instant::now(),
+                    },
+                );
+                self.order.push_back(key);
+                ReplayClaim::Owner(tx)
+            }
+        }
+    }
+
+    fn complete(&mut self, key: [u8; 32], body: Arc<Vec<u8>>) {
+        let sender = match self.entries.remove(&key) {
+            Some(ReplayEntry::Pending { tx, .. }) => Some(tx),
+            Some(ReplayEntry::Ready { body: old, .. }) => {
+                self.ready_bytes = self.ready_bytes.saturating_sub(old.len());
+                None
+            }
+            None => None,
+        };
+        self.ready_bytes += body.len();
+        self.entries.insert(
+            key,
+            ReplayEntry::Ready {
+                body: body.clone(),
+                completed: Instant::now(),
+            },
+        );
+        if let Some(tx) = sender {
+            let _ = tx.send(Some(body));
+        }
+        self.evict();
+    }
+
+    fn expire(&mut self) {
+        let now = Instant::now();
+        while let Some(key) = self.order.front().copied() {
+            let expired = match self.entries.get(&key) {
+                Some(ReplayEntry::Ready { completed, .. }) => {
+                    now.duration_since(*completed) >= REPLAY_TTL
+                }
+                Some(ReplayEntry::Pending { created, .. }) => {
+                    now.duration_since(*created) >= REPLAY_TTL
+                }
+                None => true,
+            };
+            if !expired {
+                break;
+            }
+            self.order.pop_front();
+            match self.entries.remove(&key) {
+                Some(ReplayEntry::Ready { body, .. }) => {
+                    self.ready_bytes = self.ready_bytes.saturating_sub(body.len());
+                }
+                Some(ReplayEntry::Pending { tx, .. }) => drop(tx),
+                None => {}
+            }
+        }
+    }
+
+    fn evict(&mut self) {
+        while self.entries.len() > REPLAY_MAX_ENTRIES || self.ready_bytes > REPLAY_MAX_BYTES {
+            let Some(key) = self.order.pop_front() else {
+                break;
+            };
+            match self.entries.remove(&key) {
+                Some(ReplayEntry::Ready { body, .. }) => {
+                    self.ready_bytes = self.ready_bytes.saturating_sub(body.len());
+                    self.evictions += 1;
+                    tracing::info!("batch replay eviction (evictions={})", self.evictions);
+                }
+                Some(pending @ ReplayEntry::Pending { .. }) => {
+                    self.entries.insert(key, pending);
+                    self.order.push_back(key);
+                    if self
+                        .order
+                        .iter()
+                        .all(|k| matches!(self.entries.get(k), Some(ReplayEntry::Pending { .. })))
+                    {
+                        break;
+                    }
+                }
+                None => {}
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1403,7 +1547,7 @@ struct BatchRequest {
     zc: Option<u8>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct BatchOp {
     op: String,
     #[serde(default)]
@@ -1423,6 +1567,24 @@ struct BatchOp {
 #[derive(Serialize)]
 struct BatchResponse {
     r: Vec<TunnelResponse>,
+}
+
+fn replay_fingerprint(ops: &[BatchOp], compressed_response: bool) -> Option<[u8; 32]> {
+    if ops.is_empty()
+        || ops.iter().any(|op| {
+            op.op != "data"
+                || op.sid.as_deref().is_none_or(str::is_empty)
+                || op.seq.is_none()
+                || (op.d.as_deref().is_some_and(|d| !d.is_empty()) && op.wseq.is_none())
+        })
+    {
+        return None;
+    }
+    let canonical = serde_json::to_vec(ops).ok()?;
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(&[u8::from(compressed_response)]);
+    hasher.update(&canonical);
+    Some(*hasher.finalize().as_bytes())
 }
 
 // ---------------------------------------------------------------------------
@@ -1526,7 +1688,7 @@ async fn handle_batch(State(state): State<AppState>, body: Bytes) -> impl IntoRe
     }
 
     let had_zops = req.zops.is_some();
-    let client_zstd = had_zops || req.zc.is_some();
+    let client_zstd = had_zops || req.zc.is_some_and(|caps| caps & CAP_ZSTD != 0);
     tracing::info!(
         "batch: had_zops={} zc={:?} client_zstd={} ops_len={}",
         had_zops,
@@ -1581,6 +1743,45 @@ async fn handle_batch(State(state): State<AppState>, body: Bytes) -> impl IntoRe
         }
     } else {
         req.ops
+    };
+
+    let replay_key = replay_fingerprint(&ops, client_zstd);
+    let replay_owner = if let Some(key) = replay_key {
+        match state.replay.lock().await.claim(key) {
+            ReplayClaim::Hit(body) => {
+                return (
+                    StatusCode::OK,
+                    [(header::CONTENT_TYPE, "application/json")],
+                    (*body).clone(),
+                );
+            }
+            ReplayClaim::Wait(mut rx) => loop {
+                if let Some(body) = rx.borrow().clone() {
+                    return (
+                        StatusCode::OK,
+                        [(header::CONTENT_TYPE, "application/json")],
+                        (*body).clone(),
+                    );
+                }
+                if !matches!(
+                    tokio::time::timeout(REPLAY_TTL, rx.changed()).await,
+                    Ok(Ok(()))
+                ) {
+                    let resp = serde_json::to_vec(&BatchResponse {
+                        r: vec![TunnelResponse::error("replay owner cancelled")],
+                    })
+                    .unwrap_or_default();
+                    return (
+                        StatusCode::OK,
+                        [(header::CONTENT_TYPE, "application/json")],
+                        resp,
+                    );
+                }
+            },
+            ReplayClaim::Owner(tx) => Some(tx),
+        }
+    } else {
+        None
     };
 
     // Process all ops in two phases.
@@ -2120,13 +2321,26 @@ async fn handle_batch(State(state): State<AppState>, body: Bytes) -> impl IntoRe
                     "batch response: sending zr ({} bytes compressed)",
                     compressed.len()
                 );
-                serde_json::to_vec(&serde_json::json!({"zr": zr_b64, "zc": 1})).unwrap_or_default()
+                serde_json::to_vec(&serde_json::json!({"zr": zr_b64, "zc": SERVER_CAPABILITIES}))
+                    .unwrap_or_default()
             }
-            Err(_) => serde_json::to_vec(&BatchResponse { r: r_vec }).unwrap_or_default(),
+            Err(_) => {
+                serde_json::to_vec(&serde_json::json!({"r": r_vec, "zc": SERVER_CAPABILITIES}))
+                    .unwrap_or_default()
+            }
         }
     } else {
-        serde_json::to_vec(&BatchResponse { r: r_vec }).unwrap_or_default()
+        serde_json::to_vec(&serde_json::json!({"r": r_vec, "zc": SERVER_CAPABILITIES}))
+            .unwrap_or_default()
     };
+
+    if let (Some(key), Some(_owner)) = (replay_key, replay_owner) {
+        state
+            .replay
+            .lock()
+            .await
+            .complete(key, Arc::new(json.clone()));
+    }
 
     (
         StatusCode::OK,
@@ -2596,6 +2810,7 @@ async fn main() {
         auth_key: Arc::from(auth_key),
         diagnostic_mode,
         prewarm: PrewarmState::new(),
+        replay: Arc::new(Mutex::new(ReplayRegistry::default())),
     };
 
     let app = Router::new()
@@ -2636,7 +2851,56 @@ mod tests {
             // diagnostic_mode enabled. Production default is false.
             diagnostic_mode: true,
             prewarm: PrewarmState::new(),
+            replay: Arc::new(Mutex::new(ReplayRegistry::default())),
         }
+    }
+
+    fn replayable_op(seq: u64, wseq: Option<u64>, data: Option<&str>) -> BatchOp {
+        BatchOp {
+            op: "data".into(),
+            sid: Some("session-1".into()),
+            host: None,
+            port: None,
+            d: data.map(str::to_string),
+            seq: Some(seq),
+            wseq,
+        }
+    }
+
+    #[test]
+    fn replay_fingerprint_accepts_only_sequenced_tcp_data() {
+        assert!(replay_fingerprint(&[replayable_op(7, None, None)], false).is_some());
+        assert!(replay_fingerprint(&[replayable_op(7, Some(3), Some("YWJj"))], true).is_some());
+        assert!(replay_fingerprint(&[replayable_op(7, None, Some("YWJj"))], false).is_none());
+
+        let mut unsafe_op = replayable_op(7, None, None);
+        unsafe_op.op = "udp_data".into();
+        assert!(replay_fingerprint(&[unsafe_op], false).is_none());
+    }
+
+    #[tokio::test]
+    async fn replay_registry_coalesces_then_returns_byte_identical_body() {
+        let key = [9; 32];
+        let mut registry = ReplayRegistry::default();
+        let owner = match registry.claim(key) {
+            ReplayClaim::Owner(tx) => tx,
+            _ => panic!("first claim must own"),
+        };
+        let mut waiter = match registry.claim(key) {
+            ReplayClaim::Wait(rx) => rx,
+            _ => panic!("duplicate claim must wait"),
+        };
+        let body = Arc::new(br#"{"r":[{"d":"YWJj"}],"zc":3}"#.to_vec());
+        registry.complete(key, body.clone());
+        drop(owner);
+        waiter.changed().await.unwrap();
+        assert_eq!(waiter.borrow().as_deref(), Some(body.as_ref()));
+        match registry.claim(key) {
+            ReplayClaim::Hit(hit) => assert_eq!(hit.as_ref(), body.as_ref()),
+            _ => panic!("completed claim must hit"),
+        }
+        assert_eq!(registry.coalesced, 1);
+        assert_eq!(registry.hits, 1);
     }
 
     #[tokio::test]

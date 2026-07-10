@@ -89,6 +89,8 @@ Drive transport formats cross:
 
 Changes to frame encoding, filenames, sequence behavior, session IDs, or encryption must be checked across all three.
 
+Full Tunnel `zc` is a capability bit field negotiated per Apps Script deployment: bit 0 is zstd and bit 1 is safe sequenced TCP-batch replay. Preserve it through `CodeFull.gs`; the edge-DNS splice path must clear only bit 0 while forwarding so it can inspect plain `r[]` without discarding replay negotiation.
+
 ## User-Deployed Assets
 
 - `assets/apps_script/Code.gs` — standard Apps Script fetch relay.

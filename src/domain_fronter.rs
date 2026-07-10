@@ -439,6 +439,9 @@ pub struct DomainFronter {
     /// snapshot expire stale entries so a deployment marked slow
     /// gets a fresh probe pick after `LATENCY_FRESH_FOR_SECS`.
     script_latency_ewma: Arc<std::sync::Mutex<HashMap<String, (f64, Instant)>>>,
+    /// Capability bits last advertised by each Apps Script deployment's
+    /// tunnel-node. Kept per deployment so rolling upgrades remain safe.
+    script_tunnel_capabilities: Arc<std::sync::Mutex<HashMap<String, u8>>>,
     relay_calls: AtomicU64,
     relay_failures: AtomicU64,
     bytes_relayed: AtomicU64,
@@ -911,6 +914,7 @@ impl DomainFronter {
             blacklist: Arc::new(std::sync::Mutex::new(HashMap::new())),
             script_timeouts: Arc::new(std::sync::Mutex::new(HashMap::new())),
             script_latency_ewma: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            script_tunnel_capabilities: Arc::new(std::sync::Mutex::new(HashMap::new())),
             relay_calls: AtomicU64::new(0),
             relay_failures: AtomicU64::new(0),
             bytes_relayed: AtomicU64::new(0),
@@ -4198,7 +4202,9 @@ impl DomainFronter {
         } else {
             map.insert("ops".into(), serde_json::to_value(ops)?);
         }
-        map.insert("zc".into(), Value::Number(1.into()));
+        // Existing numeric field, now interpreted as capability bits:
+        // bit 0 = zstd, bit 1 = safe TCP batch replay.
+        map.insert("zc".into(), Value::Number(3.into()));
         if !self.disable_padding {
             add_random_pad(&mut map);
         }
@@ -4356,7 +4362,15 @@ impl DomainFronter {
                         Err(e) => tracing::error!("zr base64 decode failed: {}", e),
                     }
                 }
-                if resp.zc.is_some() && !self.zstd_enabled.load(Ordering::Relaxed) {
+                if let Some(caps) = resp.zc {
+                    self.script_tunnel_capabilities
+                        .lock()
+                        .expect("tunnel capabilities mutex poisoned")
+                        .insert(script_id.to_string(), caps);
+                }
+                if resp.zc.is_some_and(|caps| caps & 1 != 0)
+                    && !self.zstd_enabled.load(Ordering::Relaxed)
+                {
                     tracing::info!("tunnel-node supports zstd, enabling compressed batches");
                     self.zstd_enabled.store(true, Ordering::Relaxed);
                 }
@@ -4379,6 +4393,14 @@ impl DomainFronter {
                 Err(FronterError::Json(e))
             }
         }
+    }
+
+    pub(crate) fn deployment_supports_batch_replay(&self, script_id: &str) -> bool {
+        self.script_tunnel_capabilities
+            .lock()
+            .expect("tunnel capabilities mutex poisoned")
+            .get(script_id)
+            .is_some_and(|caps| caps & (1 << 1) != 0)
     }
 }
 

@@ -73,6 +73,9 @@ const MAX_BATCH_OPS: usize = 50;
 /// HTTP round-trip would have completed. No retry budget here — each
 /// batch makes exactly one attempt (see `fire_batch` docs).
 const REPLY_TIMEOUT_SLACK: Duration = Duration::from_secs(5);
+static BATCH_RETRY_ATTEMPTS: AtomicU64 = AtomicU64::new(0);
+static BATCH_RETRY_SUCCESSES: AtomicU64 = AtomicU64::new(0);
+static BATCH_RETRY_EXHAUSTED: AtomicU64 = AtomicU64::new(0);
 
 /// How long we'll briefly hold the client socket after the local
 /// CONNECT/SOCKS5 handshake, waiting for the client's first bytes (the
@@ -625,7 +628,7 @@ pub struct TunnelMux {
     unreachable_cache: Mutex<HashMap<(String, u16), Instant>>,
     /// How long a session waits for its batch reply before giving up and
     /// retry-polling on the next tick. Computed at construction from
-    /// `fronter.batch_timeout() + REPLY_TIMEOUT_SLACK` so the session-
+    /// `2 * fronter.batch_timeout() + REPLY_TIMEOUT_SLACK` so the session-
     /// side `reply_rx` always outlives `fire_batch`'s single HTTP
     /// round-trip. Without runtime derivation, an operator who raises
     /// `request_timeout_secs` would see sessions abandon replies just
@@ -690,7 +693,10 @@ impl TunnelMux {
         // abandoning replies just before the HTTP round-trip would
         // have completed. See the `reply_timeout` field comment for
         // the invariant.
-        let reply_timeout = fronter.batch_timeout().saturating_add(REPLY_TIMEOUT_SLACK);
+        let reply_timeout = fronter
+            .batch_timeout()
+            .saturating_mul(2)
+            .saturating_add(REPLY_TIMEOUT_SLACK);
         pipeline_debug::set_limits(
             MAX_ELEVATED_PER_DEPLOYMENT * unique_n as u64,
             (CONCURRENCY_PER_DEPLOYMENT * unique_n) as u64,
@@ -1461,6 +1467,32 @@ fn encode_pending(p: PendingOp) -> BatchOp {
     }
 }
 
+fn batch_is_replay_safe(ops: &[BatchOp]) -> bool {
+    !ops.is_empty()
+        && ops.iter().all(|op| {
+            op.op == "data"
+                && op.sid.as_deref().is_some_and(|sid| !sid.is_empty())
+                && op.seq.is_some()
+                && (op.d.as_deref().is_none_or(str::is_empty) || op.wseq.is_some())
+        })
+}
+
+fn ambiguous_batch_failure(
+    result: &Result<
+        Result<crate::domain_fronter::BatchTunnelResponse, FronterError>,
+        tokio::time::error::Elapsed,
+    >,
+) -> bool {
+    matches!(
+        result,
+        Err(_)
+            | Ok(Err(FronterError::Timeout
+                | FronterError::Io(_)
+                | FronterError::BadResponse(_)
+                | FronterError::Json(_),))
+    )
+}
+
 /// Pick a deployment, acquire its per-account concurrency slot, and spawn
 /// a batch request task.
 ///
@@ -1552,11 +1584,35 @@ async fn fire_batch(
         // batch timeout (Config::request_timeout_secs), all sessions in
         // this batch get an error and can retry-poll on the next tick.
         let batch_timeout = f.batch_timeout();
-        let result = tokio::time::timeout(
+        let mut result = tokio::time::timeout(
             batch_timeout,
             f.tunnel_batch_request_to(&script_id, &data_ops),
         )
         .await;
+        let replay_safe = batch_is_replay_safe(&data_ops);
+        if replay_safe
+            && f.deployment_supports_batch_replay(&script_id)
+            && ambiguous_batch_failure(&result)
+        {
+            let attempts = BATCH_RETRY_ATTEMPTS.fetch_add(1, Ordering::Relaxed) + 1;
+            tracing::warn!(
+                "batch ambiguous failure; retrying exact batch on script {} (attempts={})",
+                &script_id[..script_id.len().min(8)],
+                attempts
+            );
+            result = tokio::time::timeout(
+                batch_timeout,
+                f.tunnel_batch_request_to(&script_id, &data_ops),
+            )
+            .await;
+            if result.as_ref().is_ok_and(|r| r.is_ok()) {
+                let successes = BATCH_RETRY_SUCCESSES.fetch_add(1, Ordering::Relaxed) + 1;
+                tracing::info!("batch replay retry succeeded (successes={})", successes);
+            } else {
+                let exhausted = BATCH_RETRY_EXHAUSTED.fetch_add(1, Ordering::Relaxed) + 1;
+                tracing::warn!("batch replay retry exhausted (exhausted={})", exhausted);
+            }
+        }
         let sid_short = &script_id[..script_id.len().min(8)];
         tracing::info!(
             "batch: {} ops → {}, rtt={:?}",
@@ -3263,8 +3319,8 @@ mod tests {
 
         assert_eq!(
             mux.reply_timeout(),
-            Duration::from_secs(60) + REPLY_TIMEOUT_SLACK,
-            "reply_timeout must equal batch_timeout + REPLY_TIMEOUT_SLACK"
+            Duration::from_secs(120) + REPLY_TIMEOUT_SLACK,
+            "reply_timeout must equal 2 * batch_timeout + REPLY_TIMEOUT_SLACK"
         );
     }
 

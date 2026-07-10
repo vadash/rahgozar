@@ -414,7 +414,7 @@ function _doTunnel(req) {
 function _doTunnelBatch(req) {
   // Compressed batch: forward opaquely, skip edge-DNS inspection.
   if (req.zops) {
-    return _doTunnelBatchForwardCompressed(req.zops);
+    return _doTunnelBatchForwardCompressed(req.zops, req.zc);
   }
 
   var ops = (req && req.ops) || [];
@@ -504,10 +504,11 @@ function _doTunnelBatch(req) {
 
   // Forward the un-served ops. DNS replies that came back from the
   // tunnel-node are cached here, so the next batch can hit locally without
-  // spending an extra DoH fetch first. zc is intentionally not passed —
-  // Apps Script must parse r[] for the splice path, so the response can't
-  // be compressed.
-  var resp = _doTunnelBatchFetch(forwardOps);
+  // spending an extra DoH fetch first. Preserve zc even though Apps Script
+  // must request an uncompressed r[] response for the splice path.
+  // Clear only the zstd-request bit: splice needs plain r[], while bit 1
+  // still tells the node/client path that safe replay is understood.
+  var resp = _doTunnelBatchFetch(forwardOps, zc ? (zc & ~1) : zc);
   if (resp.error) return _json({ e: resp.error });
   if (resp.r.length !== forwardOps.length) {
     // Tunnel-node version skew — bail explicitly rather than silently
@@ -519,7 +520,9 @@ function _doTunnelBatch(req) {
     return ContentService.createTextOutput(resp.text)
       .setMimeType(ContentService.MimeType.JSON);
   }
-  return _json({ r: _spliceTunnelResults(forwardIdx, resp.r, results) });
+  var spliced = { r: _spliceTunnelResults(forwardIdx, resp.r, results) };
+  if (resp.zc) spliced.zc = resp.zc;
+  return _json(spliced);
 }
 
 // Verbatim forward: no splice, response passed through unchanged.
@@ -542,11 +545,13 @@ function _doTunnelBatchForward(ops, zc) {
 
 // Compressed forward: zops is an opaque blob, passed to tunnel-node as-is.
 // Response is also opaque (may contain zr instead of r).
-function _doTunnelBatchForwardCompressed(zops) {
+function _doTunnelBatchForwardCompressed(zops, zc) {
+  var body = { k: TUNNEL_AUTH_KEY, zops: zops };
+  if (zc) body.zc = zc;
   var resp = _timedFetch(TUNNEL_SERVER_URL + "/tunnel/batch", {
     method: "post",
     contentType: "application/json",
-    payload: JSON.stringify({ k: TUNNEL_AUTH_KEY, zops: zops }),
+    payload: JSON.stringify(body),
     muteHttpExceptions: true,
     followRedirects: true,
   });
@@ -559,8 +564,9 @@ function _doTunnelBatchForwardCompressed(zops) {
 
 // Forward + parse for the splice path. Returns { r:[...] } on success or
 // { error: "..." } on any failure.
-function _doTunnelBatchFetch(ops) {
+function _doTunnelBatchFetch(ops, zc) {
   var body = { k: TUNNEL_AUTH_KEY, ops: ops };
+  if (zc) body.zc = zc;
   var resp = _timedFetch(TUNNEL_SERVER_URL + "/tunnel/batch", {
     method: "post",
     contentType: "application/json",
@@ -574,7 +580,7 @@ function _doTunnelBatchFetch(ops) {
   try {
     var text = resp.getContentText();
     var parsed = JSON.parse(text);
-    return { r: (parsed && parsed.r) || [], text: text };
+    return { r: (parsed && parsed.r) || [], zc: parsed && parsed.zc, text: text };
   } catch (err) {
     return { error: "tunnel batch parse error" };
   }

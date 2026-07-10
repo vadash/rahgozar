@@ -45,6 +45,12 @@ function check(label, cond, detail) {
   }
 }
 
+console.log('TEST 0 replay capability preservation');
+check('compressed forward carries zc', /_doTunnelBatchForwardCompressed\(req\.zops, req\.zc\)/.test(src));
+check('splice fetch carries replay bit without zstd', /_doTunnelBatchFetch\(forwardOps, zc \? \(zc & ~1\) : zc\)/.test(src));
+check('splice response preserves node zc', /if \(resp\.zc\) spliced\.zc = resp\.zc;/.test(src));
+ok();
+
 // --- 1. parse a query for example.com A ---
 const q1 = Buffer.from([
   0x12, 0x34,                                               // txid
