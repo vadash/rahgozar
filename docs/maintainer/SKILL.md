@@ -19,15 +19,10 @@ This is a standard Rust project. `cd` into your local clone before running git/g
 This knowledge base is structured for progressive disclosure. The body below covers conventions and reflexes; the reference files have the deep context for specific tasks. Read them lazily — only the ones relevant to what you're doing.
 
 - **`references/architecture.md`** — Read when explaining the system to a user, debugging unfamiliar log patterns, or making an architectural decision. Covers domain fronting, apps_script vs Full mode, MITM CA, tunnel-node, the AUTH_KEY/TUNNEL_AUTH_KEY/DIAGNOSTIC_MODE distinction, SNI rewriting, and `google_ip` rotation.
-- **`references/issue-patterns.md`** — Read when triaging a new issue. Catalogs the most common user-reported issue patterns with diagnostic procedures and canonical reply structures.
 - **`references/diagnostic-taxonomy.md`** — Read when a user shows a failure log with `no json in batch response` or HTML body. The six candidate causes for the placeholder body, what each looks like, and how `DIAGNOSTIC_MODE=true` disambiguates them.
-- **`references/workflow-conventions.md`** — Read when writing a reply, changelog, or commit message. Reply marker, Persian-vs-English language convention, changelog format, semver discipline.
 - **`references/release-workflow.md`** — Read when cutting a release. Cargo.toml bump → changelog → commit → tag → push, then auto-fired CI handles the rest (matrix release builds + GitHub release page).
-- **`references/contributors.md`** — Read when interacting with named contributors. Each top contributor has a domain they specialize in.
-- **`references/roadmap.md`** — Read when categorizing a feature request. Current and upcoming release batches.
 - **`references/persian-templates.md`** — Read when writing a Persian reply. Common phrases and full-paragraph templates for the most-repeated Persian-language situations.
 - **`assets/changelog-template.md`** — Use as the starting template when creating a new `docs/changelog/vX.Y.Z.md` file.
-- **`assets/reply-marker.md`** — The exact reply footer to append to every issue/PR comment.
 
 ## Conventions to internalize
 
@@ -98,12 +93,12 @@ For "do DOPR", "check issues", "issues, prs", or similar requests, the workflow 
 
 1. **List open PRs**: `gh pr list --state open --limit 20`
 2. **List recently-updated issues**: `gh issue list --state open --limit 30 --search "sort:updated-desc"`
-3. **For each PR**: review the diff, check CI, decide merge/comment/decline. New PRs from new accounts that look like supply-chain-pattern (typosquat, "update requirements.txt" with weird deps, rebrand-and-replace) get declined politely. Substantive code from known contributors generally gets merged after a local `cargo test --lib` + build. See `references/contributors.md` for who's known.
+3. **For each PR**: review the diff, check CI, decide merge/comment/decline. New PRs from new accounts that look like supply-chain-pattern (typosquat, "update requirements.txt" with weird deps, rebrand-and-replace) get declined politely. Substantive code gets merged only after relevant local tests and builds.
 4. **For each issue updated since last DOPR**: read the latest comments. If there's a new user message, reply substantively (not just "thanks, will look into it"). If there's user confirmation that a fix worked, close the issue. If you've been waiting on user data and they haven't responded for several days, the issue can stay open or be closed with "Closing for now; reopen if it's still happening." (use judgment).
 5. **If anything user-visible landed**: cut a patch release. Don't batch up 5 PRs into one big release — ship one at a time.
 6. **For each new substantive issue**: write a real reply. Default to writing it in a temp file (e.g., `/tmp/r-<issue>-<topic>.md`) and posting via `gh issue comment N --body-file ...` (avoids HEREDOC quoting hell with backticks and `$()`).
 
-DOPR replies should not be templated. Use the issue-patterns reference to recognize the situation, then write a reply that addresses _this user's specific report_ — their log lines, their config, their setup. Templated replies are easy to spot and erode trust.
+DOPR replies should not be templated. Use the current diagnostics and issue context, then write a reply that addresses _this user's specific report_ — their log lines, their config, their setup. Templated replies are easy to spot and erode trust.
 
 ## Operational guardrails
 

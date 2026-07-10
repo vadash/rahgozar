@@ -2298,9 +2298,10 @@ private fun AdvancedSettings(
         // Curated fronting-group loader. The bundle ships at
         // assets/fronting-groups/curated.json (synced from the Rust
         // crate's canonical copy by Gradle's syncFrontingGroupsAssets
-        // task). Mirrors the desktop UI's Advanced-section button.
-        // No in-app editor for the entries — this is the no-typing
-        // path. Existing groups with the same `name` are preserved.
+        // task). Mirrors the desktop curated-loader action. This is the
+        // no-typing path; the dedicated fronting-groups section can edit
+        // the resulting entries. Existing groups with the same `name`
+        // are preserved.
         val ctx = LocalContext.current
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(

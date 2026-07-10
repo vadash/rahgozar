@@ -14,13 +14,14 @@ import java.io.IOException
  *
  * Same shape as `src/curated_groups.rs` on the Rust side: `mergeInto`
  * appends groups whose `name` isn't already present, leaving the user's
- * hand-edited entries alone. There's no in-app editor for the entries
- * yet, so this is the no-typing path to install Vercel / Fastly /
- * AWS-CloudFront / direct-GitHub coverage.
+ * hand-edited entries alone. This is the no-typing path to install
+ * Vercel / Fastly / AWS-CloudFront / direct-GitHub coverage before
+ * refining entries in the fronting-groups editor.
  *
  * Edge IPs rotate. If a group stops working, the remediation is the
  * same as desktop: re-resolve `sni` (`nslookup <sni>`) and edit the IP
- * by hand in `config.json`. There's no IP-refresh button in the UI yet.
+ * in the fronting-groups editor or `config.json`. There's no automatic
+ * IP-refresh button in the UI yet.
  */
 object CuratedGroups {
     private const val TAG = "CuratedGroups"

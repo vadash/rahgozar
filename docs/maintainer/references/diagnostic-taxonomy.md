@@ -59,7 +59,7 @@ This taxonomy is the post-mortem evolution of v1.8.0 → v1.8.1 → v1.8.2 → v
 
 **Trigger**: Network-conditional. Active throttle periods (sometimes hours, sometimes days). Worse on certain Google IPs. Worse on certain Iranian ISPs.
 
-**Disambiguator**: Direct curl test from the user's network (see `issue-patterns.md` Pattern 3). If curl-to-Apps-Script also gets timeouts/RST, confirmed ISP-side. The HTML body in this case is partial/truncated — sometimes just `<!DOCT...` rather than the full placeholder.
+**Disambiguator**: Run a direct curl test against the Apps Script deployment from the user's network. If that also gets timeouts/RST, the failure is ISP-side. The HTML body in this case is partial/truncated — sometimes just `<!DOCT...` rather than the full placeholder.
 
 **Fix**: Workarounds in Pattern 3 — `disable_padding`, rotate `google_ip`, switch network, multi-deployment, Full mode + VPS.
 
@@ -105,7 +105,7 @@ The body is Google Workspace's landing page (the description "Word web processin
 
 **Source**: Apps Script refuses to execute the deployed script when the owning account is restricted, and serves the Workspace landing page as a "log in" prompt instead.
 
-**Trigger**: Account is in stage 1b or stage 2 of the suspension progression (see `issue-patterns.md` Pattern 8). Often correlates with phone-less new accounts that ignored the "action required" prompt.
+**Trigger**: The account is in a restricted post-warning state. This often correlates with phone-less new accounts that ignored an "action required" prompt.
 
 **Disambiguator**: Owner of the deployment can log in to Google → see if there are pending warnings or restrictions. If yes → fix the account (add phone) or rotate the deployment to a healthier account.
 

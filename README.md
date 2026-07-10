@@ -74,30 +74,24 @@
 
 | سیستم تو | فایل دانلود |
 |---|---|
-| مک با تراشهٔ Apple Silicon (M1 / M2 / M3 / M4) | `rahgozar-macos-arm64-app.zip` |
-| مک با تراشهٔ Intel | `rahgozar-macos-amd64-app.zip` |
-| ویندوز | `rahgozar-windows-amd64.zip` |
-| لینوکس (Ubuntu / Mint / Fedora / Debian / Arch) | `rahgozar-linux-amd64.tar.gz` |
-| گوشی یا تبلت اندروید | `rahgozar-android-universal-v*.apk` |
-| روتر OpenWRT یا Alpine | `rahgozar-linux-musl-amd64.tar.gz` |
+| مک | نصب‌کنندهٔ `.dmg` مناسب معماری دستگاه |
+| ویندوز | نصب‌کنندهٔ `.msi` یا فایل portable ویندوز |
+| لینوکس دسکتاپ | `.AppImage` یا بستهٔ `.deb` |
+| گوشی، تبلت یا Android TV | APK جهانی یا APK مخصوص ABI دستگاه |
+| CLI / سرور / روتر OpenWRT | آرشیو `rahgozar-*` مناسب معماری و libc دستگاه |
 
 > **مک: مطمئن نیستی Apple Silicon است یا Intel؟** کلیک کن  → **About This Mac**. اگر "Chip" نوشت **Apple**، arm64 بگیر. اگر **Intel** بود، amd64.
 
 > **لینوکس: خطای `GLIBC` می‌گیری؟** به‌جای آن از `linux-musl-amd64` استفاده کن — روی هر لینوکسی بدون وابستگی کار می‌کند.
 
-از حالت فشرده دربیار.
+### مرحلهٔ ۳ — نصب و اجرای اول
 
-### مرحلهٔ ۳ — اجرای اول
+- روی مک فایل `.dmg` را باز کن و برنامه را به Applications بکش.
+- روی ویندوز فایل `.msi` را نصب کن، یا نسخهٔ portable را مستقیم اجرا کن.
+- روی لینوکس بستهٔ `.deb` را نصب کن یا فایل `.AppImage` را executable و اجرا کن.
+- روی اندروید APK را نصب کن؛ جزئیات در [راهنمای اندروید](docs/android.fa.md) است.
 
-روی فایل اجرا دو بار کلیک کن:
-
-| سیستم | فایل اجرا |
-|---|---|
-| مک | `run.command` |
-| ویندوز | `run.bat` |
-| لینوکس | `./run.sh` (در ترمینال) |
-
-اولین بار رمز کامپیوترت را می‌خواهد. این برای نصب یک گواهی کوچک است تا مرورگرت به رهگذر اعتماد کند. **گواهی روی کامپیوتر خودت ساخته می‌شود و هیچ‌وقت جایی ارسال نمی‌شود** — نه روی ابر، نه به گوگل، هیچ منبع راه‌دوری نمی‌تواند ازش استفاده کند.
+در حالت‌های `apps_script` و `direct`، کارت CA داخل برنامه در صورت نیاز نصب گواهی MITM را پیشنهاد می‌دهد. **گواهی و کلید خصوصی روی دستگاه خودت ساخته می‌شوند و هیچ‌وقت جایی ارسال نمی‌شوند.** حالت‌های `full`، `drive` و `local_bypass` برای مسیر اصلی خود به این گواهی نیاز ندارند.
 
 پنجرهٔ رهگذر باز می‌شود. این فیلدها را پر کن:
 
@@ -147,7 +141,7 @@
 
 **امنه؟** گواهی روی کامپیوتر خودت می‌ماند — کسی کلید خصوصی را ندارد. `auth_key` رمز محرمانهٔ توست. گوگل سایت‌هایی که از طریق رله باز می‌کنی را می‌بیند (چون Apps Script برای تو fetch می‌کند) — مثل هر پروکسی میزبانی‌شدهٔ دیگری. اگر این برایت قابل قبول نیست، از Full Tunnel با VPS شخصی استفاده کن — در [راهنمای کامل](docs/guide.fa.md#حالت-تونل-کامل).
 
-**ویدیوی یوتیوب پخش نمی‌شود.** chunkهای ویدیوی یوتیوب از `googlevideo.com` می‌آیند و Apps Script نمی‌تواند به آن برسد (گوگل اجازهٔ دسترسی Apps Script به CDN ویدیوی خودش را نمی‌دهد). صفحهٔ خود یوتیوب لود می‌شود، فقط پخش ویدیو تحت تأثیر است. راه‌حل: Full Tunnel + VPS، یا `.googlevideo.com` را به `passthrough_hosts` در کانفیگت اضافه کن (مرورگر مستقیم می‌رود اما روی ISP ایران throttle می‌خورد).
+**ویدیو یا فید یوتیوب کار نمی‌کند.** از بخش Fronting Groups دکمهٔ بارگذاری گروه‌های آماده را بزن و گروه‌های `youtube-web` و `google-video` را نگه دار. این گروه‌ها یوتیوب را از مسیر camouflage مستقیم و سازگار با HTTP/2 عبور می‌دهند. اگر ISP خود IP مقصد را مسدود کرده باشد، این مسیر کافی نیست؛ از Full Tunnel، Drive Mode، یا یک upstream واقعی استفاده کن.
 
 **در ChatGPT / Claude / Grok کپچای Cloudflare ظاهر می‌شود.** Cloudflare آی‌پی‌های دیتاسنتر گوگل را به‌عنوان bot شناسایی می‌کند. راه‌حل: یک **exit node** راه‌اندازی کن — یک handler کوچک TypeScript که روی یک host serverless (Deno Deploy، fly.io، VPS شخصی) deploy می‌کنی و پل می‌سازه از Apps Script به سایت Cloudflare. [`assets/exit_node/README.fa.md`](assets/exit_node/README.fa.md).
 
@@ -278,30 +272,24 @@ Go to the [latest release page](https://github.com/dazzling-no-more/rahgozar/rel
 
 | You're on | Download this |
 |---|---|
-| Mac with Apple Silicon (M1 / M2 / M3 / M4 chip) | `rahgozar-macos-arm64-app.zip` |
-| Mac with Intel chip | `rahgozar-macos-amd64-app.zip` |
-| Windows | `rahgozar-windows-amd64.zip` |
-| Linux (Ubuntu / Mint / Fedora / Debian / Arch) | `rahgozar-linux-amd64.tar.gz` |
-| Android phone or tablet | `rahgozar-android-universal-v*.apk` |
-| OpenWRT router or Alpine | `rahgozar-linux-musl-amd64.tar.gz` |
+| macOS | The `.dmg` installer matching the machine architecture |
+| Windows | The `.msi` installer or portable Windows executable |
+| Desktop Linux | `.AppImage` or `.deb` package |
+| Phone, tablet, or Android TV | Universal APK or the APK matching the device ABI |
+| CLI / server / OpenWRT router | The `rahgozar-*` archive matching the architecture and libc |
 
 > **Mac: not sure if Apple Silicon or Intel?** Click  → **About This Mac**. If "Chip" says **Apple**, get arm64. If **Intel**, get amd64.
 
 > **Linux: getting a `GLIBC` error?** Use the `linux-musl-amd64` file instead — it works on any Linux without dependencies.
 
-Unzip it.
+### Step 3 — Install and open it
 
-### Step 3 — First run
+- On macOS, open the `.dmg` and drag rahgozar to Applications.
+- On Windows, install the `.msi`, or run the portable build directly.
+- On Linux, install the `.deb` or mark the `.AppImage` executable and run it.
+- On Android, install the APK; see the [Android guide](docs/android.md) for the complete flow.
 
-Double-click the launcher:
-
-| Platform | Launcher |
-|---|---|
-| Mac | `run.command` |
-| Windows | `run.bat` |
-| Linux | `./run.sh` (in a terminal) |
-
-The first time, it asks for your computer password. This is to install one small certificate so your browser trusts rahgozar. **The certificate is generated on your computer and never leaves it** — no cloud, no Google, nothing remote can use it.
+In `apps_script` and `direct` modes, the CA card in the app offers to install the local MITM certificate when needed. **The certificate and private key are generated on your device and never leave it.** The primary paths for `full`, `drive`, and `local_bypass` do not require that certificate.
 
 The rahgozar window opens. Fill in:
 
@@ -351,7 +339,7 @@ If something doesn't work:
 
 **Is it safe?** The certificate stays on your computer — no one else has the private key. Your `auth_key` is your secret. Google sees the websites you visit through the relay (because Apps Script fetches them on your behalf) — same as any hosted proxy. If you're not OK with that, use Full Tunnel mode with your own VPS — see the [full guide](docs/guide.md#full-tunnel-mode).
 
-**YouTube videos don't play.** YouTube's video chunks come from `googlevideo.com`, which Apps Script can't reach (Google blocks Apps Script from accessing Google's own video CDN). The page itself loads fine; only video playback is affected. Fix: Full Tunnel + VPS, or add `.googlevideo.com` to `passthrough_hosts` in your config (browser hits it directly, but on Iran ISPs it's still throttled).
+**YouTube video or the scrolling feed does not work.** In Fronting Groups, load the curated groups and keep `youtube-web` and `google-video` enabled. They route YouTube through the direct camouflage path with HTTP/2 support. If the ISP blocks the destination IP itself, camouflage is insufficient; use Full Tunnel, Drive Mode, or a real upstream tunnel.
 
 **ChatGPT / Claude / Grok shows a Cloudflare CAPTCHA.** Cloudflare flags Google datacenter IPs as bots. Fix: set up an **exit node** — a small TypeScript handler you deploy on a serverless host (Deno Deploy, fly.io, your own VPS) that bridges Apps Script → your exit node → claude.ai. See [`assets/exit_node/README.md`](assets/exit_node/README.md).
 

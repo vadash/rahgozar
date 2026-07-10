@@ -116,7 +116,7 @@ If your ISP is already blocking Google Apps Script (or all of Google), you need 
 
 1. Download the binary (see [main README → Step 2](../README.md#step-2--download-rahgozar))
 2. Copy [`config.direct.example.json`](../config.direct.example.json) to `config.json` — no `script_id`, no `auth_key` required
-3. Run `rahgozar serve` and set browser HTTP proxy to `127.0.0.1:8085`
+3. Run `rahgozar` and set browser HTTP proxy to `127.0.0.1:8085`
 4. In `direct` mode, the proxy only routes `*.google.com`, `*.youtube.com`, and other Google-edge hosts (plus any [`fronting_groups`](fronting-groups.md) you've configured) via the SNI-rewrite tunnel. Other traffic goes raw — no Apps Script relay exists yet.
 5. Now do Step 1 in your browser (the connection to `script.google.com` will be SNI-fronted). Deploy `Code.gs`, copy the Deployment ID.
 6. In the UI / Android app / by editing `config.json`, switch mode to `apps_script`, paste the Deployment ID and your auth key, and restart.

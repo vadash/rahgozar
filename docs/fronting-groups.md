@@ -273,9 +273,6 @@ edge directly, not through the Apps Script relay or the Google edge.
 - **No bundled domain catalog.** The upstream Xray config uses
   `geosite:vercel` / `geosite:fastly` lists from a binary geosite
   database — we don't ship that, you list domains explicitly.
-- **No UI editor.** Edit `config.json` directly. The UI's Save path
-  preserves your `fronting_groups` block (round-tripped) — it just
-  doesn't render an editor for it.
 - **Browsers only for Android non-root**, same as the Google path —
   third-party apps that don't trust user CAs (Telegram, Instagram, …)
   can't be MITM'd, so this trick doesn't help them.

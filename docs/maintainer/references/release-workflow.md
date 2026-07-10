@@ -58,7 +58,7 @@ Should show only the `name = "rahgozar"` block's `version = "X.Y.Z"` change.
 
 ### Step 4: Write the changelog
 
-Create `docs/changelog/vX.Y.Z.md` using the format in `assets/changelog-template.md`. Persian first, then `---`, then English. See `workflow-conventions.md` for format details.
+Create `docs/changelog/vX.Y.Z.md` using the format in `assets/changelog-template.md`. Persian first, then `---`, then English. Match the structure of recent changelog files.
 
 When the release is shipping multiple PRs from contributors, credit each by name + handle in both halves of the changelog.
 
@@ -85,8 +85,7 @@ git status  # sanity check
 git commit -m "$(cat <<'EOF'
 chore: vX.Y.Z — <short summary fitting under 75 chars>
 
-<longer body explaining the why and the changes — see workflow-conventions.md
-for format>
+<longer body explaining the reason and the changes>
 EOF
 )"
 

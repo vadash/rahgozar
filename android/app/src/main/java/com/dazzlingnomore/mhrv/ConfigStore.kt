@@ -537,9 +537,8 @@ data class RahgozarConfig(
      * Multi-edge fronting groups (Vercel, Fastly, AWS CloudFront, …).
      * Until v1.9.x the Android Save path silently dropped this field
      * because it wasn't modelled here; round-tripping fixes that and
-     * unlocks the curated bundle loader. There's no in-app editor for
-     * the entries — users either load the curated bundle or import a
-     * config that contains them. See `assets/fronting-groups/curated.json`.
+     * supports both the curated bundle loader and the in-app editor.
+     * See `assets/fronting-groups/curated.json`.
      */
     val frontingGroups: List<FrontingGroup> = emptyList(),
     /**

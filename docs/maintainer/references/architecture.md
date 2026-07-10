@@ -86,8 +86,6 @@ The TLS handshake between rahgozar and Apps Script does:
 
 Iran ISPs occasionally filter specific Google IPs (#313 pattern). When this happens, the user can rotate `google_ip` to another IP from `DEFAULT_GOOGLE_SNI_POOL` (the 12-entry list in `src/domain_fronter.rs`). `rahgozar scan-ips` is a diagnostic command that probes Google IPs from the user's network and reports which ones complete TLS handshakes.
 
-`scan_config.json` (separate from main `config.json`) is the input for `rahgozar scan-ips` — users sometimes confuse the two and put the scan config where the main config should be. See `issue-patterns.md`.
-
 ## v1.8.0 anti-fingerprinting features
 
 - **Random padding** (`_pad` field, 0-1024 bytes uniform random, base64) — defeats DPI length-distribution fingerprinting. Users on heavily-throttled ISPs can disable with `disable_padding: true` (~25% bandwidth savings) — landed in v1.8.1.
